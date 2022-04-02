@@ -1,0 +1,102 @@
+---
+title: Test
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = FALSE, message = FALSE, warning = FALSE)
+library(kableExtra)
+library(tidyverse)
+```
+
+
+## General Tracking Information
+
+```{r}
+perc_tracked_block <- combined %>%
+  filter(block != 'instructions') %>%
+  mutate(block = fct_drop(block)) %>%
+  group_by(trials_this_n, block) %>%
+  summarize(n = n(),
+            perc = round(sum(!is.na(average_gaze_x) & !is.na(average_gaze_y))/n()*100,2)) %>%
+  ungroup() %>%
+  complete(trials_this_n,block)
+
+perc_tracked_overall <- combined %>%
+  filter(block != 'instructions') %>%
+  summarize(perc = round(sum(!is.na(average_gaze_x) & !is.na(average_gaze_y))/n()*100,2),
+            n = n())
+
+missing_blocks <- perc_tracked_block %>%
+  filter(is.na(perc))
+```
+
+Overall, `r perc_tracked_overall$perc`% of samples had a recorded gaze position.
+
+The total number of blocks in this design was `r nlevels(perc_tracked_block$trials_this_n) * nlevels(perc_tracked_block$block)`. This was calculated as the number of trials multiplied by the number of blocks within each trial.
+
+Out of those blocks, `r nrow(missing_blocks)` were completely missing data. These missing blocks can be seen below:
+
+<center>
+
+```{r print missing blocks, include=TRUE, echo=FALSE}
+missing_blocks %>%
+  kable %>%
+  kable_styling("striped") %>% 
+  scroll_box(width = "500px", height = "100px")
+```
+
+</center>
+
+
+The percent of samples tracked within each block can be seen below:
+
+<center>
+
+```{r print percent tracked, include=TRUE, echo=FALSE}
+perc_tracked_block %>%
+  kable %>%
+  kable_styling("striped") %>% 
+ scroll_box(width = "500px", height = "200px")
+```
+
+</center>
+
+### Gaze Position
+
+```{r}
+perc_on_screen <- combined %>%
+  filter(block != 'instructions', !is.na(average_gaze_x),!is.na(average_gaze_y)) %>%
+  summarize(avg_within = round(sum(between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080))/n()*100,2))
+
+perc_in_stim <- combined %>%
+  filter(block == 'stimulus', !is.na(average_gaze_x), !is.na(average_gaze_y)) %>%
+  summarize(avg_within = round(sum(between(average_gaze_x,540,1380) & between(average_gaze_y,270,810))/n()*100,2))
+```
+
+All gaze position data is taken after the instructions were completed. Presented data is average gaze position as given by the eyetracker. Samples where no eyetracking data is recorded are removed from the overall count.
+
+- % of time participant was gazing on screen: `r perc_on_screen$avg_within`%.
+- % of time participant was gazing within the stimulus area during stimulus blocks: `r perc_in_stim$avg_within`%.
+
+
+```{r gaze plots, fig.show='hold',out.width='50%', include = TRUE, echo = FALSE}
+combined %>%
+  filter(block != 'instructions', between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080)) %>%
+  select(average_gaze_x, average_gaze_y) %>%
+  ggplot(aes(x = average_gaze_x, average_gaze_y)) +
+  geom_density_2d_filled() +
+  scale_y_reverse() +
+  labs(title = 'Gaze Plot Over the Screen', x = '', y = '') +
+  theme_minimal()
+
+combined %>%
+  filter(block != 'instructions', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  select(average_gaze_x, average_gaze_y) %>%
+  ggplot(aes(x = average_gaze_x, average_gaze_y)) +
+  geom_density_2d_filled() +
+  scale_y_reverse() +
+  labs(title = 'Gaze Within Stimulus Zone', x = '', y = '') +
+  theme_minimal()
+```
+
