@@ -2,7 +2,7 @@
 library(tidyverse)
 
 # set time frames as window lengths
-file <- 'G:/My Drive/Work/Eyetracking/data/hf_wander/raw/raw_combined.csv'
+file <- 'data/hf_wander/raw/raw_combined.csv'
 prefix_l <- 200 # number of samples (ms) in the pre-fixation window
 fix_l <- 100 # window size for the fixation time block
 stim_w <- 200 #set stimulus block averaging window (i.e. every stim_w samples will be averaged together)
