@@ -1,3 +1,4 @@
 # ignore any data directories
 **/data
 .Rproj.user
+*.docx
