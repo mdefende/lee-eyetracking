@@ -1,6 +1,7 @@
 # load libraries and source functions
 library(janitor)
 library(rstatix)
+library(rmarkdown)
 library(tidyverse)
 
 source('code/methods.R')
@@ -10,6 +11,7 @@ source('code/methods.R')
 # List files to be loaded and the output file
 et_file <- 'data/hf_focus/raw/eyetracking_raw.csv'
 stim_file <- 'data/hf_focus/raw/stimulus.csv'
+num_trials <- 35
 
 combined <- match_et_with_stim(et_file,stim_file)
 
@@ -28,15 +30,14 @@ prefix_df <- calc_prefixation(combined)
 
 fix_df <- calc_fixation(combined)
 
+## Normalize Raw
+
+combined_n <- normalize_raw(combined, 
+                            prefix = prefix_df, 
+                            fix = fix_df,
+                            trials = num_trials)
 ## Calculate Stimulus
 
-stim_df <- calc_stimulus(combined)
-
-## Normalize stimulus
-
-stim_n <- normalize_stimulus(stim_df, 
-                             prefix = prefix_df, 
-                             fix = fix_df, 
-                             outfile = 'data/hf_focus/preproc/stimulus_averaged_eyetracking_outputs.csv')
+stim_df <- calc_stimulus(combined_n)
 
 render('code/generate_report.Rmd', output_format = 'html_document', output_file = 'test.html')
