@@ -4,16 +4,35 @@ output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(include = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center')
 library(kableExtra)
+library(ggpubr)
+library(scales)
+library(plotly)
 library(tidyverse)
+
+c.theme <- function(){
+  theme_minimal() +
+    theme(text = element_text(family = 'Times New Roman'),
+          plot.title = element_text(hjust = 0.5, size = 20),
+          axis.title = element_text(size = 14),
+          axis.text = element_text(size = 12),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14))
+}
+```
+
+```{r setup fonts, include = FALSE}
+library(extrafont)
+
+loadfonts(device = 'win')
 ```
 
 
 ## General Tracking Information
 
-```{r}
-perc_tracked_block <- combined %>%
+```{r, include = FALSE}
+perc_tracked_block <- combined_n %>%
   filter(block != 'instructions') %>%
   mutate(block = fct_drop(block)) %>%
   group_by(trials_this_n, block) %>%
@@ -22,7 +41,7 @@ perc_tracked_block <- combined %>%
   ungroup() %>%
   complete(trials_this_n,block)
 
-perc_tracked_overall <- combined %>%
+perc_tracked_overall <- combined_n %>%
   filter(block != 'instructions') %>%
   summarize(perc = round(sum(!is.na(average_gaze_x) & !is.na(average_gaze_y))/n()*100,2),
             n = n())
@@ -39,7 +58,7 @@ Out of those blocks, `r nrow(missing_blocks)` were completely missing data. Thes
 
 <center>
 
-```{r print missing blocks, include=TRUE, echo=FALSE}
+```{r print missing blocks}
 missing_blocks %>%
   kable %>%
   kable_styling("striped") %>% 
@@ -53,7 +72,7 @@ The percent of samples tracked within each block can be seen below:
 
 <center>
 
-```{r print percent tracked, include=TRUE, echo=FALSE}
+```{r print percent tracked}
 perc_tracked_block %>%
   kable %>%
   kable_styling("striped") %>% 
@@ -65,11 +84,11 @@ perc_tracked_block %>%
 ### Gaze Position
 
 ```{r}
-perc_on_screen <- combined %>%
+perc_on_screen <- combined_n %>%
   filter(block != 'instructions', !is.na(average_gaze_x),!is.na(average_gaze_y)) %>%
   summarize(avg_within = round(sum(between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080))/n()*100,2))
 
-perc_in_stim <- combined %>%
+perc_in_stim <- combined_n %>%
   filter(block == 'stimulus', !is.na(average_gaze_x), !is.na(average_gaze_y)) %>%
   summarize(avg_within = round(sum(between(average_gaze_x,540,1380) & between(average_gaze_y,270,810))/n()*100,2))
 ```
@@ -77,26 +96,102 @@ perc_in_stim <- combined %>%
 All gaze position data is taken after the instructions were completed. Presented data is average gaze position as given by the eyetracker. Samples where no eyetracking data is recorded are removed from the overall count.
 
 - % of time participant was gazing on screen: `r perc_on_screen$avg_within`%.
-- % of time participant was gazing within the stimulus area during stimulus blocks: `r perc_in_stim$avg_within`%.
 
+<center>
 
-```{r gaze plots, fig.show='hold',out.width='50%', include = TRUE, echo = FALSE}
-combined %>%
+```{r gaze plot 1}
+p1 <- combined_n %>%
   filter(block != 'instructions', between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080)) %>%
   select(average_gaze_x, average_gaze_y) %>%
-  ggplot(aes(x = average_gaze_x, average_gaze_y)) +
-  geom_density_2d_filled() +
+  ggplot(aes(x = average_gaze_x, average_gaze_y, fill = ..count../sum(..count..)*100,
+             text = after_stat(paste('x:', round(x,0), '\n',
+                                     'y:', round(-y,0), '\n',
+                                     'percent:', round(count/sum(count)*100,2),'%')))) +
+  geom_hex() +
   scale_y_reverse() +
-  labs(title = 'Gaze Plot Over the Screen', x = '', y = '') +
-  theme_minimal()
+  scale_fill_viridis_c(option = 'inferno', limits = c(0,15), oob = squish) +
+  coord_fixed() +
+  labs(title = 'Gaze Plot Over the Screen', x = '', y = '', fill = '% of samples') +
+  c.theme()
 
-combined %>%
+ggplotly(p1, tooltip = 'text')
+```
+
+</center>
+
+- % of time participant was gazing within the stimulus area during stimulus blocks: `r perc_in_stim$avg_within`%.
+
+<center>
+
+```{r gaze plot 2}
+p2 <- combined_n %>%
   filter(block != 'instructions', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
   select(average_gaze_x, average_gaze_y) %>%
-  ggplot(aes(x = average_gaze_x, average_gaze_y)) +
-  geom_density_2d_filled() +
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, fill = ..count../sum(..count..)*100,
+             text = after_stat(paste('x:', round(x,0), '\n',
+                                     'y:', round(-y,0), '\n',
+                                     'percent:', round(count/sum(count)*100,2),'%')))) +
+  geom_hex() +
   scale_y_reverse() +
-  labs(title = 'Gaze Within Stimulus Zone', x = '', y = '') +
-  theme_minimal()
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno', limits = c(0,6), oob = squish) +
+  labs(title = 'Gaze Within Stimulus Zone during Stimulus', x = '', y = '', fill = '% of samples') +
+  c.theme()
+
+ggplotly(p2, tooltip = list('x','y','text'))
+```
+
+</center>
+
+## Pupil Size
+
+```{r pupil size histograms}
+pupil_dens <- function(df,plot_title){
+  df %>%
+    pivot_longer(everything(),
+                 names_to = 'type',
+                 values_to = 'size') %>%
+    mutate(type = str_extract(type,c('average','left','right'))) %>%
+    ggplot(aes(x = size, fill = type)) +
+    geom_density(alpha = .3) +
+    labs(x = 'Pupil Size', y = '', title = plot_title, fill = 'Eye') +
+    c.theme() +
+    theme(plot.title = element_text(size = 14),
+          axis.title = element_text(size = 12))
+}
+
+raw_p <- combined_n %>%
+  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  select(c(average_pupil_size,left_pupil_size,right_pupil_size)) %>%
+  pupil_dens(plot_title = 'Raw Pupil Size')
+
+med_pf_p <- combined_n %>%
+  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  select(c(med_average_pupil_norm_pf, med_left_pupil_norm_pf, med_right_pupil_norm_pf)) %>%
+  pupil_dens(plot_title = 'Median Prefix Normalized Pupil Size')
+
+med_fix_p <- combined_n %>%
+  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  select(c(mean_average_pupil_norm_pf, mean_left_pupil_norm_pf, mean_right_pupil_norm_pf)) %>%
+  pupil_dens(plot_title = 'Mean Prefix Normalized Pupil Size')
+
+mean_pf_p <- combined_n %>%
+  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  select(c(med_average_pupil_norm_fix, med_left_pupil_norm_fix, med_right_pupil_norm_fix)) %>%
+  pupil_dens(plot_title = 'Median Fixation Normalized Pupil Size')
+
+mean_fix_p <- combined_n %>%
+  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  select(c(mean_average_pupil_norm_fix, mean_left_pupil_norm_fix, mean_right_pupil_norm_fix)) %>%
+  pupil_dens(plot_title = 'Mean Fixation Normalized Pupil Size')
+
+fix_plots <- ggarrange(med_pf_p, med_fix_p, mean_pf_p, mean_fix_p, raw_p, 
+                       ncol = 2,
+                       nrow = 3,
+                       widths = c(2,2),
+                       heights = c(2,2,2),
+                       common.legend = TRUE)
+
+fix_plots
 ```
 
