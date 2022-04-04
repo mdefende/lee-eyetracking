@@ -192,8 +192,6 @@ mean_fix_p <- combined_n %>%
 fix_plots <- ggarrange(med_pf_p, med_fix_p, mean_pf_p, mean_fix_p, raw_p, 
                        ncol = 2,
                        nrow = 3,
-                       widths = c(2,2),
-                       heights = c(2,2,2),
                        common.legend = TRUE)
 
 ggplotly(fix_plots)
@@ -201,11 +199,12 @@ ggplotly(fix_plots)
 
 ### Pupil Sizes During Stimuli
 
-#### Epoch Average
+#### Epoch Median
 
-Average pupil size is plotted for each stimulus as a function of epoch.
+Median pupil size is plotted for each stimulus as a function of epoch.
 
-```{r stimuli pupil sizes}
-
+```{r raw stimuli pupil sizes}
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_average_pupil_size))
 ```
 
