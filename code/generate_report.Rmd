@@ -99,8 +99,8 @@ All gaze position data is taken after the instructions were completed. Presented
 
 <center>
 
-```{r gaze plot 1}
-p1 <- combined_n %>%
+```{r screen gaze position}
+screen_gaze_hist <- combined_n %>%
   filter(block != 'instructions', between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080)) %>%
   select(average_gaze_x, average_gaze_y) %>%
   ggplot(aes(x = average_gaze_x, average_gaze_y, fill = ..count../sum(..count..)*100,
@@ -114,7 +114,7 @@ p1 <- combined_n %>%
   labs(title = 'Gaze Plot Over the Screen', x = '', y = '', fill = '% of samples') +
   c.theme()
 
-ggplotly(p1, tooltip = 'text')
+ggplotly(screen_gaze_hist, tooltip = 'text')
 ```
 
 </center>
@@ -123,8 +123,8 @@ ggplotly(p1, tooltip = 'text')
 
 <center>
 
-```{r gaze plot 2}
-p2 <- combined_n %>%
+```{r stim gaze position}
+stim_gaze_hist <- combined_n %>%
   filter(block != 'instructions', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
   select(average_gaze_x, average_gaze_y) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, fill = ..count../sum(..count..)*100,
@@ -138,12 +138,16 @@ p2 <- combined_n %>%
   labs(title = 'Gaze Within Stimulus Zone during Stimulus', x = '', y = '', fill = '% of samples') +
   c.theme()
 
-ggplotly(p2, tooltip = list('x','y','text'))
+ggplotly(stim_gaze_hist, tooltip = list('x','y','text'))
 ```
 
 </center>
 
 ## Pupil Size
+
+### Distribution of Pupil Sizes
+
+Eyelink reports pupil data from left and right eyes as well as the average of the two. The preprocessing pipeline performs mean and median normalization on all 3 measures relative to prefixation and fixation baselines. The following plots show the distribution of pupil sizes for samples where the participant has their gaze on the screen during the experiment (i.e. past the instructions block).
 
 ```{r pupil size histograms}
 pupil_dens <- function(df,plot_title){
@@ -192,6 +196,16 @@ fix_plots <- ggarrange(med_pf_p, med_fix_p, mean_pf_p, mean_fix_p, raw_p,
                        heights = c(2,2,2),
                        common.legend = TRUE)
 
-fix_plots
+ggplotly(fix_plots)
+```
+
+### Pupil Sizes During Stimuli
+
+#### Epoch Average
+
+Average pupil size is plotted for each stimulus as a function of epoch.
+
+```{r stimuli pupil sizes}
+
 ```
 
