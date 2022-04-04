@@ -6,12 +6,16 @@ library(tidyverse)
 
 source('code/methods.R')
 
-## Matching eyetracking and Stimulus timepoints
+################   Inputs   #####################
 
-# List files to be loaded and the output file
+# List files to be loaded and the total number of trials
 et_file <- 'data/hf_focus/raw/eyetracking_raw.csv'
 stim_file <- 'data/hf_focus/raw/stimulus.csv'
 num_trials <- 35
+
+# list the participant ID and output directory for preprocessing reports
+participant <- 'HF_Focus'
+report_dir <- 'reports'
 
 combined <- match_et_with_stim(et_file,stim_file)
 
@@ -40,4 +44,8 @@ combined_n <- normalize_raw(combined,
 
 stim_df <- calc_stimulus(combined_n)
 
-render('code/generate_report.Rmd', output_format = 'html_document', output_file = 'test.html')
+## Generate Preprocessing Report
+render('code/generate_report.Rmd', 
+       output_format = html_document(title = participant), 
+       output_dir = report_dir,
+       output_file = paste0(participant,'.html'))

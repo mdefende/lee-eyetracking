@@ -1,10 +1,11 @@
 ---
-title: Test
+title: "Preprocessing Stats from `r participant`"
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center')
+options(width = 1200)
 library(kableExtra)
 library(ggpubr)
 library(scales)
@@ -13,7 +14,7 @@ library(tidyverse)
 
 c.theme <- function(){
   theme_minimal() +
-    theme(text = element_text(family = 'Times New Roman'),
+    theme(text = element_text(family = 'serif'),
           plot.title = element_text(hjust = 0.5, size = 20),
           axis.title = element_text(size = 14),
           axis.text = element_text(size = 12),
@@ -21,13 +22,6 @@ c.theme <- function(){
           legend.title = element_text(size = 14))
 }
 ```
-
-```{r setup fonts, include = FALSE}
-library(extrafont)
-
-loadfonts(device = 'win')
-```
-
 
 ## General Tracking Information
 
@@ -125,7 +119,7 @@ ggplotly(screen_gaze_hist, tooltip = 'text')
 
 ```{r stim gaze position}
 stim_gaze_hist <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
   select(average_gaze_x, average_gaze_y) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, fill = ..count../sum(..count..)*100,
              text = after_stat(paste('x:', round(x,0), '\n',
@@ -135,7 +129,7 @@ stim_gaze_hist <- combined_n %>%
   scale_y_reverse() +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno', limits = c(0,6), oob = squish) +
-  labs(title = 'Gaze Within Stimulus Zone during Stimulus', x = '', y = '', fill = '% of samples') +
+  labs(title = 'Gaze Within Stimulus Zone During Stimulus', x = '', y = '', fill = '% of samples') +
   c.theme()
 
 ggplotly(stim_gaze_hist, tooltip = list('x','y','text'))
@@ -189,22 +183,59 @@ mean_fix_p <- combined_n %>%
   select(c(mean_average_pupil_norm_fix, mean_left_pupil_norm_fix, mean_right_pupil_norm_fix)) %>%
   pupil_dens(plot_title = 'Mean Fixation Normalized Pupil Size')
 
-fix_plots <- ggarrange(med_pf_p, med_fix_p, mean_pf_p, mean_fix_p, raw_p, 
+ggarrange(med_pf_p, med_fix_p, mean_pf_p, mean_fix_p, raw_p, 
                        ncol = 2,
                        nrow = 3,
                        common.legend = TRUE)
-
-ggplotly(fix_plots)
 ```
 
 ### Pupil Sizes During Stimuli
 
 #### Epoch Median
 
-Median pupil size is plotted for each stimulus as a function of epoch.
+Median average (combined left and right values) pupil size is plotted for each stimulus block as a function of epoch. Raw values are plotted followed by prefixation and fixation-normalized values, respectively. Within stimulus blocks, patterns of change in pupil size are not different across the raw and two types of normalization, however the differences pupil size between blocks does differ across normalizations. The extent to which they differ is dependent on the variance in pupil size during the chosen normalization block across samples.
 
-```{r raw stimuli pupil sizes}
+```{r raw stimuli pupil sizes, fig.width = 12, fig.height= 8}
 stim_df %>%
-  ggplot(aes(x = epoch, y = stim_med_average_pupil_size))
+  ggplot(aes(x = epoch, y = stim_med_average_pupil_size)) +
+  geom_point(size = 2) + 
+  facet_wrap(~trials_this_n) + 
+  labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Raw Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme()
+```
+
+```{r pf norm stimuli pupil sizes, fig.width = 12, fig.height= 8}
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_average_pupil_norm_pf)) +
+  geom_point(size = 2) + 
+  facet_wrap(~trials_this_n) + 
+  labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Prefixation-normalized Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme()
+```
+
+```{r fix norm stimuli pupil sizes, fig.width = 12, fig.height= 8}
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_average_pupil_norm_fix)) +
+  geom_point(size = 2) + 
+  facet_wrap(~trials_this_n) + 
+  labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Prefixation-normalized Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme()
+```
+
+
+### Pupil Size and Gaze Position
+
+```{r}
+stim_gaze_pupil_size <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = average_pupil_size)) +
+  stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
+  scale_y_reverse() +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno') +
+  labs(title = 'Median Average Pupil Size During Stimulus', x = '', y = '', fill = 'Average Pupil Size') +
+  c.theme()
+
+ggplotly(stim_gaze_pupil_size)
 ```
 
