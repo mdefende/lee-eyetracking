@@ -31,14 +31,17 @@ perc_tracked_block <- combined_n %>%
   mutate(block = fct_drop(block)) %>%
   group_by(trials_this_n, block) %>%
   summarize(n = n(),
-            perc = round(sum(!is.na(average_gaze_x) & !is.na(average_gaze_y))/n()*100,2)) %>%
+            tracked = sum(!is.na(average_gaze_x) & !is.na(average_gaze_y)),
+            perc = round(tracked/n()*100,2)) %>%
   ungroup() %>%
   complete(trials_this_n,block)
 
 perc_tracked_overall <- combined_n %>%
   filter(block != 'instructions') %>%
-  summarize(perc = round(sum(!is.na(average_gaze_x) & !is.na(average_gaze_y))/n()*100,2),
-            n = n())
+  summarize(n = n(),
+            tracked = sum(!is.na(average_gaze_x) & !is.na(average_gaze_y)),
+            perc = round(tracked/n()*100,2),
+            )
 
 missing_blocks <- perc_tracked_block %>%
   filter(is.na(perc))
@@ -102,8 +105,9 @@ screen_gaze_hist <- combined_n %>%
                                      'y:', round(-y,0), '\n',
                                      'percent:', round(count/sum(count)*100,2),'%')))) +
   geom_hex() +
-  scale_y_reverse() +
-  scale_fill_viridis_c(option = 'inferno', limits = c(0,15), oob = squish) +
+  scale_x_continuous(limits = c(0,1920)) +
+  scale_y_reverse(limits = c(1080,0)) +
+  scale_fill_viridis_c(option = 'inferno', limits = c(0,5), oob = squish) +
   coord_fixed() +
   labs(title = 'Gaze Plot Over the Screen', x = '', y = '', fill = '% of samples') +
   c.theme()
@@ -128,7 +132,7 @@ stim_gaze_hist <- combined_n %>%
   geom_hex() +
   scale_y_reverse() +
   coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno', limits = c(0,6), oob = squish) +
+  scale_fill_viridis_c(option = 'inferno', limits = c(0,5), oob = squish) +
   labs(title = 'Gaze Within Stimulus Zone During Stimulus', x = '', y = '', fill = '% of samples') +
   c.theme()
 
@@ -225,17 +229,124 @@ stim_df %>%
 
 ### Pupil Size and Gaze Position
 
-```{r}
+Median average pupil size are plotted as functions of gaze position during stimulus blocks. Only positions within the boundary of the stimulus area are plotted. Non-normalized median values are plotted first followed by prefixation normalized, and then fixation normalized.
+
+#### Raw Pupil Size
+
+<center>
+
+```{r raw pupil size gaze, fig.show='hold'}
 stim_gaze_pupil_size <- combined_n %>%
   filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = average_pupil_size)) +
   stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
+  scale_x_continuous(limits = c(540,1380)) +
+  scale_y_reverse(limits = c(810,270)) +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno',limits = c(300,550), oob = squish) +
+  labs(title = 'Median Average Pupil Size', x = '', y = '', fill = 'Average Pupil Size') +
+  c.theme()
+
+stim_gaze_pupil_sd <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = average_pupil_size)) +
+  stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
+  scale_x_continuous(limits = c(540,1380)) +
+  scale_y_reverse(limits = c(810,270)) +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno', limits = c(0,100), oob = squish) +
+  labs(title = 'Median Average Pupil SD', x = '', y = '', fill = 'Average Pupil SD') +
+  c.theme()
+
+stim_gaze_pupil_n <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  select(average_gaze_x, average_gaze_y) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, fill = ..count..,
+             text = after_stat(paste('x:', round(x,0), '\n',
+                                     'y:', round(-y,0), '\n',
+                                     'n:', count)))) +
+  geom_hex() +
   scale_y_reverse() +
   coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno') +
-  labs(title = 'Median Average Pupil Size During Stimulus', x = '', y = '', fill = 'Average Pupil Size') +
+  scale_fill_viridis_c(option = 'inferno', limits = c(0,500), oob = squish) +
+  labs(title = 'Total Samples Samples', x = '', y = '', fill = 'N') +
   c.theme()
 
 ggplotly(stim_gaze_pupil_size)
+
+ggplotly(stim_gaze_pupil_sd)
+
+ggplotly(stim_gaze_pupil_n, tooltip = c('text'))
 ```
 
+</center>
+
+#### Prefixation Normalized 
+
+<center>
+
+```{r, fig.show='hold'}
+stim_gaze_pupil_size_pf <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_pf)) +
+  stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
+  scale_x_continuous(limits = c(540,1380)) +
+  scale_y_reverse(limits = c(810,270)) +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno') +
+  labs(title = 'Prefixation Normalized Median Pupil Size', x = '', y = '', fill = 'Average Pupil Size') +
+  c.theme()
+
+stim_gaze_pupil_sd_pf <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_pf)) +
+  stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
+  scale_x_continuous(limits = c(540,1380)) +
+  scale_y_reverse(limits = c(810,270)) +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno') +
+  labs(title = 'Prefixation Normalized Median Pupil SD', x = '', y = '', fill = 'Average Pupil SD') +
+  c.theme()
+
+ggplotly(stim_gaze_pupil_size_pf)
+
+ggplotly(stim_gaze_pupil_sd_pf)
+
+```
+
+</center>
+
+#### Fixation Normalized 
+
+<center>
+
+```{r, fig.show='hold'}
+stim_gaze_pupil_size_fix <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_fix)) +
+  stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
+  scale_x_continuous(limits = c(540,1380)) +
+  scale_y_reverse(limits = c(810,270)) +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno') +
+  labs(title = 'Fixation Normalized Median Pupil Size', x = '', y = '', fill = 'Average Pupil Size') +
+  c.theme()
+
+stim_gaze_pupil_sd_fix <- combined_n %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_fix)) +
+  stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
+  scale_x_continuous(limits = c(540,1380)) +
+  scale_y_reverse(limits = c(810,270)) +
+  coord_fixed() + 
+  scale_fill_viridis_c(option = 'inferno') +
+  labs(title = 'Fixation Normalized Median Pupil SD', x = '', y = '', fill = 'Average Pupil SD') +
+  c.theme()
+
+ggplotly(stim_gaze_pupil_size_fix)
+
+ggplotly(stim_gaze_pupil_sd_fix)
+
+```
+
+</center>
