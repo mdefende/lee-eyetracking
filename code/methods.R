@@ -1,4 +1,20 @@
-match_et_with_stim <- function (et_file, stim_file, save_output = FALSE) {
+check_stim_times <- function(stim_file) {
+  inorder <- read_csv(stim_file, col_types = cols()) %>%
+    clean_names() %>%
+    select(starts_with('et_')) %>%
+    remove_empty('rows') %>%
+    pivot_longer(everything(), names_to = 'block',values_to = 'time') %>%
+    mutate(sort_time = sort(time)) %>%
+    summarize(inorder = all(time == sort_time))
+  
+  if(inorder$inorder){
+    print('All reported block times are in order')
+  } else {
+    print('Reported eyetracking block times are not in order')
+  }
+}
+
+match_et_with_stim <- function (et_file, stim_file,save_output = FALSE) {
 
 # Load Required Libraries
 library(janitor)
@@ -9,7 +25,7 @@ library(tidyverse)
 # will be removed, as these are empty columns
 et <- read_csv(et_file) %>%
   clean_names() %>%
-  select(where(~ !all(. %in% c('.','[]'))))
+  remove_empty('cols')
 
 # remove some other seemingly unnecessary columns
 et <- et %>%
@@ -20,21 +36,10 @@ et <- et %>%
 stim <- read_csv(stim_file) %>%
   clean_names()
 
-# remove first row as it corresponds to instructions time.
 stim <- stim %>%
-  filter(!is.na(stimuli))
-
-# remove any completely empty columns
-stim <- stim %>%
-  select(where(~ !all(is.na(.))))
-
-# remove the timeOff columns. some reporting is off and needs to be looked at.
-# also remove response time, it's being merged with the texttime block
-stim <- stim %>%
-  select(-contains('time_off'), -et_response)
-
-stim <- stim %>%
-  select(stimuli:trials_this_n, contains('et_'),key_resp_rt,key_resp_keys,key_resp_corr) %>%
+  filter(!is.na(remember_loop_this_trial_n)) %>%
+  remove_empty('cols') %>%
+  select(stimuli:remember_loop_this_trial_n, contains(c('et_','key','_rt','correct'))) %>%
   pivot_longer(starts_with('et_'), names_to = 'block', values_to = 'timestamp') %>%
   mutate(block = str_remove(block,'et_'))
 
@@ -42,13 +47,12 @@ stim <- stim %>%
 #################### Combine and Export ###################################
 v <- left_join(et,stim, by = 'timestamp') %>%
   relocate(stimuli:block, .after = recording_session_label) %>%
-  fill(stimuli:block, .direction = 'down') %>%
-  mutate(block = replace_na(block,'instructions'),
-         block = str_remove(block,'time'),
+  fill(stimuli:timestamp, .direction = 'down') %>%
+  mutate(block = str_remove(block,'time'),
          block = factor(block),
-         trials_this_n = replace_na(trials_this_n,0)) %>%
-  mutate(across(average_acceleration_x:timestamp, as.numeric), # coerce eyetracking data to numeric.
-         across(contains(c('in_saccade','in_blink')), as.logical)) 
+         across(average_acceleration_x:last_col(), as.numeric), # coerce eyetracking data to numeric.
+         across(contains(c('in_saccade','in_blink')), as.logical)) %>%
+  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off'))
 
 if (save_output){
   outdir <- dirname(et_file)
@@ -58,44 +62,18 @@ if (save_output){
 return(v)
 }
 
-calc_prefixation <- function(raw, prefix_l = 200){
-  
-  prefix <- raw %>%
-    filter(block %in% c('instructions','text')) %>%
-    select(average_gaze_x,average_gaze_y,average_pupil_size,left_pupil_size,right_pupil_size,average_gaze_x,trials_this_n,block) %>%
-    mutate(trials_this_n = ifelse(block == 'instructions',0,trials_this_n + 1)) %>%
-    filter(trials_this_n != max(trials_this_n)) # remove the last prefixation block before the experiment ends
-  
-  # grab last prefix_l samples per trial, give mean, median, max, min, and sd
-  prefix_s <- prefix %>%
-    mutate(trials_this_n = as.factor(trials_this_n)) %>%
-    filter(between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
-    group_by(trials_this_n) %>%
-    slice_tail(n = prefix_l) %>%
-    summarize(across(contains('pupil_size'),
-                     .fns = list(mean = ~mean(., na.rm = TRUE), 
-                                 median = ~median(., na.rm = TRUE),
-                                 min = ~min(., na.rm = TRUE),
-                                 max = ~max(., na.rm = TRUE),
-                                 sd = ~sd(., na.rm = TRUE)),
-                     .names = 'pf_{.fn}_{.col}'),
-              pf_n = sum(!is.na(average_pupil_size)))
-  
-  return(prefix_s)
-}
-
 calc_fixation <- function(raw, fix_l = 100){
   ############ Fixation ################
   
   fix <- raw %>%
     filter(block == 'fixation') %>%
-    select(average_gaze_x,average_gaze_y,average_pupil_size,left_pupil_size,right_pupil_size,average_gaze_x,trials_this_n,block)
+    select(average_gaze_x,average_gaze_y,average_pupil_size,left_pupil_size,right_pupil_size,average_gaze_x,remember_loop_this_trial_n,block)
   
   # grab last prefix_l samples per trial, give mean, median, and sd
   fix_s <- fix %>%
-    mutate(trials_this_n = as.factor(trials_this_n)) %>%
+    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n)) %>%
     filter(between(average_gaze_x,0,1920),between(average_gaze_y,0,1080)) %>%
-    group_by(trials_this_n) %>%
+    group_by(remember_loop_this_trial_n) %>%
     slice_tail(n = fix_l) %>%
     summarize(across(contains('pupil_size'),
                      .fns = list(mean = ~mean(., na.rm = TRUE), 
@@ -109,30 +87,16 @@ calc_fixation <- function(raw, fix_l = 100){
   return(fix_s)
 }
 
-normalize_raw <- function(raw, prefix = NULL, fix = NULL, trials = NULL, outfile = NULL){
+normalize_raw <- function(raw, fix, trials, outfile = NULL){
   
-  # check if raw$trials_this_n is a factor, change to it if not
-  if (!is.factor(raw$trials_this_n) & !is.null(trials)){
+  # check if raw$remember_loop_this_trial_n is a factor, change to it if not
+  if (!is.factor(raw$remember_loop_this_trial_n)){
     raw <- raw %>%
-      mutate(trials_this_n = factor(trials_this_n, levels = seq(0,trials-1,1)))
+      mutate(remember_loop_this_trial_n = factor(remember_loop_this_trial_n, levels = seq(0,trials-1,1)))
   }
   
-  # combine stim with prefixation data, fixation, or both
-  if (!is.null(prefix)){
-    raw <- raw %>%
-      left_join(prefix,by = "trials_this_n") %>%
-      mutate(med_average_pupil_norm_pf   = average_pupil_size/pf_median_average_pupil_size,
-             med_left_pupil_norm_pf      = left_pupil_size/pf_median_left_pupil_size,
-             med_right_pupil_norm_pf     = right_pupil_size/pf_median_right_pupil_size,
-             mean_average_pupil_norm_pf  = average_pupil_size/pf_mean_average_pupil_size,
-             mean_left_pupil_norm_pf     = left_pupil_size/pf_mean_left_pupil_size,
-             mean_right_pupil_norm_pf    = right_pupil_size/pf_mean_right_pupil_size) %>%
-      select(-starts_with('pf'))
-  }
-  
-  if (!is.null(fix)){
-    raw <- raw %>%
-      left_join(fix,by = "trials_this_n") %>%
+  raw <- raw %>%
+      left_join(fix,by = "remember_loop_this_trial_n") %>%
       mutate(med_average_pupil_norm_fix  = average_pupil_size/fix_median_average_pupil_size,
              med_left_pupil_norm_fix     = left_pupil_size/fix_median_left_pupil_size,
              med_right_pupil_norm_fix    = right_pupil_size/fix_median_right_pupil_size,
@@ -140,8 +104,7 @@ normalize_raw <- function(raw, prefix = NULL, fix = NULL, trials = NULL, outfile
              mean_left_pupil_norm_fix    = left_pupil_size/fix_mean_left_pupil_size,
              mean_right_pupil_norm_fix   = right_pupil_size/fix_mean_right_pupil_size) %>%
       select(-starts_with('fix'))
-  }
-  
+ 
   raw <- raw %>%
     relocate(contains('average_pupil_norm'), .after = 'average_pupil_size') %>%
     relocate(contains('left_pupil_norm'), .after = 'left_pupil_size') %>%
@@ -163,7 +126,7 @@ calc_stimulus <- function (raw, stim_w = 200){
   # divide each stimulus block into epochs determined by the window size stim_w
   stim <- raw %>%
     filter(block == 'stimulus') %>%
-    group_by(trials_this_n) %>% 
+    group_by(remember_loop_this_trial_n) %>% 
     mutate(epoch = cut(timestamp,
                        seq(min(timestamp),max(timestamp),stim_w),
                        include.lowest = TRUE, 
@@ -176,7 +139,7 @@ calc_stimulus <- function (raw, stim_w = 200){
   # window size, they will be assigned to a new epoch, otherwise they will be
   # grouped with the last epoch of the block
   nas <- stim %>% 
-    group_by(trials_this_n) %>% 
+    group_by(remember_loop_this_trial_n) %>% 
     summarize(num_na = sum(is.na(epoch)),
               max_epoch = max(epoch, na.rm = TRUE)) %>%
     mutate(na_rep = ifelse(num_na > stim_w/2, max_epoch + 1, max_epoch))
@@ -184,7 +147,7 @@ calc_stimulus <- function (raw, stim_w = 200){
   
   # add the NA contingent epoch information back to the stimulus set, and replace
   # the NA epoch values with the correct epoch assignment
-  stim <- left_join(stim, nas, by = "trials_this_n") %>%
+  stim <- left_join(stim, nas, by = "remember_loop_this_trial_n") %>%
     mutate(epoch = ifelse(is.na(epoch),na_rep,epoch)) %>%
     select(-num_na,-max_epoch,-na_rep) %>%
     ungroup()
@@ -193,9 +156,9 @@ calc_stimulus <- function (raw, stim_w = 200){
   
   
   stim_s <- stim %>%
-    filter(between(average_gaze_x, 540, 1380), between(average_gaze_y, 270,810)) %>%
-    group_by(trials_this_n,epoch) %>% 
-    summarize(across(c(stimuli:group,key_resp_rt,key_resp_corr), unique),
+    filter(between(average_gaze_x, 540, 1380), between(average_gaze_y, 0,540)) %>%
+    group_by(remember_loop_this_trial_n,epoch) %>% 
+    summarize(across(c(stimuli:group,key_resp_rt,correct), unique),
               across(.cols = c(contains(c('gaze_x','gaze_y')),ends_with('pupil_size')),
                      .fns = list(mean = ~mean(.x, na.rm = TRUE),
                                  med = ~median(.x, na.rm = TRUE),

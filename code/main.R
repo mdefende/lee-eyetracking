@@ -12,26 +12,18 @@ source('code/methods.R')
 ################   Inputs   #####################
 
 # List files to be loaded and the total number of trials
-et_file <- 'data/bp_wander/raw/eyetracking_raw.csv'
-stim_file <- 'data/bp_wander/raw/stimulus.csv'
-num_trials <- 35
+et_file <- 'data/Pranav_pilot_new/raw/Pranav1EyeTrackerData.csv'
+stim_file <- 'data/Pranav_pilot_new/raw/Pranav1_with_correct.csv'
 
 # list the participant ID and output directory for preprocessing reports
-participant <- 'BP_Wander'
+participant <- 'Pranav_new'
 report_dir <- 'reports'
 
 combined <- match_et_with_stim(et_file,stim_file)
+num_trials <- max(combined$remember_loop_this_trial_n) + 1
 
 
 ### Preprocess eyetracking
-
-## Calculate Prefixation
-
-# Prefixation is calculated using the texttime block prior to the fixation block
-# for the next trial. The only exception is for the first trial where the last
-# prefix_l samples of the instructions will be used instead
-
-prefix_df <- calc_prefixation(combined)
 
 ## Calculate Fixation
 
@@ -40,7 +32,6 @@ fix_df <- calc_fixation(combined)
 ## Normalize Raw
 
 combined_n <- normalize_raw(combined, 
-                            prefix = prefix_df, 
                             fix = fix_df,
                             trials = num_trials)
 ## Calculate Stimulus
