@@ -52,7 +52,8 @@ v <- left_join(et,stim, by = 'timestamp') %>%
          block = factor(block),
          across(average_acceleration_x:last_col(), as.numeric), # coerce eyetracking data to numeric.
          across(contains(c('in_saccade','in_blink')), as.logical)) %>%
-  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off'))
+  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off')) %>%
+  mutate(block = fct_drop(block))
 
 if (save_output){
   outdir <- dirname(et_file)
@@ -158,7 +159,7 @@ calc_stimulus <- function (raw, stim_w = 200){
   stim_s <- stim %>%
     filter(between(average_gaze_x, 540, 1380), between(average_gaze_y, 0,540)) %>%
     group_by(remember_loop_this_trial_n,epoch) %>% 
-    summarize(across(c(stimuli:group,key_resp_rt,correct), unique),
+    summarize(across(c(stimuli:block), unique),
               across(.cols = c(contains(c('gaze_x','gaze_y')),ends_with('pupil_size')),
                      .fns = list(mean = ~mean(.x, na.rm = TRUE),
                                  med = ~median(.x, na.rm = TRUE),
@@ -179,8 +180,7 @@ calc_stimulus <- function (raw, stim_w = 200){
                      .fns = ~sd(.x, na.rm = TRUE),
                      .names = 'stim_sd_{.col}'),
               
-              stim_n = n()) %>%
-    relocate(correct_ans, .after = key_resp_corr)
+              stim_n = n())
   
   return(stim_s)
 }
