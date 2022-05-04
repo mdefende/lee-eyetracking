@@ -16,7 +16,7 @@ et_file <- 'data/Pranav_pilot_new/raw/Pranav1EyeTrackerData.csv'
 stim_file <- 'data/Pranav_pilot_new/raw/Pranav1_with_correct.csv'
 
 # list the participant ID and output directory for preprocessing reports
-participant <- 'Pranav_new'
+participant <- 'PranavNew'
 report_dir <- 'reports'
 
 combined <- match_et_with_stim(et_file,stim_file)
