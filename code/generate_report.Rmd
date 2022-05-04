@@ -27,17 +27,17 @@ c.theme <- function(){
 
 ```{r, include = FALSE}
 perc_tracked_block <- combined_n %>%
-  filter(block != 'instructions') %>%
+  filter(block != 'response') %>%
   mutate(block = fct_drop(block)) %>%
-  group_by(trials_this_n, block) %>%
+  group_by(remember_loop_this_trial_n, block) %>%
   summarize(n = n(),
             tracked = sum(!is.na(average_gaze_x) & !is.na(average_gaze_y)),
             perc = round(tracked/n()*100,2)) %>%
   ungroup() %>%
-  complete(trials_this_n,block)
+  complete(remember_loop_this_trial_n,block)
 
 perc_tracked_overall <- combined_n %>%
-  filter(block != 'instructions') %>%
+  filter(block != 'response') %>%
   summarize(n = n(),
             tracked = sum(!is.na(average_gaze_x) & !is.na(average_gaze_y)),
             perc = round(tracked/n()*100,2),
@@ -49,7 +49,7 @@ missing_blocks <- perc_tracked_block %>%
 
 Overall, `r perc_tracked_overall$perc`% of samples had a recorded gaze position.
 
-The total number of blocks in this design was `r nlevels(perc_tracked_block$trials_this_n) * nlevels(perc_tracked_block$block)`. This was calculated as the number of trials multiplied by the number of blocks within each trial.
+The total number of blocks in this design was `r nlevels(perc_tracked_block$remember_loop_this_trial_n) * nlevels(perc_tracked_block$block)`. This was calculated as the number of trials multiplied by the number of blocks within each trial.
 
 Out of those blocks, `r nrow(missing_blocks)` were completely missing data. These missing blocks can be seen below:
 
@@ -57,6 +57,7 @@ Out of those blocks, `r nrow(missing_blocks)` were completely missing data. Thes
 
 ```{r print missing blocks}
 missing_blocks %>%
+  rename(trial = remember_loop_this_trial_n) %>%
   kable %>%
   kable_styling("striped") %>% 
   scroll_box(width = "500px", height = "100px")
@@ -71,9 +72,10 @@ The percent of samples tracked within each block can be seen below:
 
 ```{r print percent tracked}
 perc_tracked_block %>%
+  rename(trial = remember_loop_this_trial_n) %>%
   kable %>%
   kable_styling("striped") %>% 
- scroll_box(width = "500px", height = "200px")
+  scroll_box(width = "500px", height = "200px")
 ```
 
 </center>
@@ -82,12 +84,12 @@ perc_tracked_block %>%
 
 ```{r}
 perc_on_screen <- combined_n %>%
-  filter(block != 'instructions', !is.na(average_gaze_x),!is.na(average_gaze_y)) %>%
+  filter(block != 'response', !is.na(average_gaze_x),!is.na(average_gaze_y)) %>%
   summarize(avg_within = round(sum(between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080))/n()*100,2))
 
 perc_in_stim <- combined_n %>%
   filter(block == 'stimulus', !is.na(average_gaze_x), !is.na(average_gaze_y)) %>%
-  summarize(avg_within = round(sum(between(average_gaze_x,540,1380) & between(average_gaze_y,270,810))/n()*100,2))
+  summarize(avg_within = round(sum(between(average_gaze_x,540,1380) & between(average_gaze_y,0,540))/n()*100,2))
 ```
 
 All gaze position data is taken after the instructions were completed. Presented data is average gaze position as given by the eyetracker. Samples where no eyetracking data is recorded are removed from the overall count.
@@ -98,7 +100,7 @@ All gaze position data is taken after the instructions were completed. Presented
 
 ```{r screen gaze position}
 screen_gaze_hist <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080)) %>%
+  filter(block != 'response', between(average_gaze_x,0,1920) & between(average_gaze_y,0,1080)) %>%
   select(average_gaze_x, average_gaze_y) %>%
   ggplot(aes(x = average_gaze_x, average_gaze_y, fill = ..count../sum(..count..)*100,
              text = after_stat(paste('x:', round(x,0), '\n',
@@ -123,7 +125,7 @@ ggplotly(screen_gaze_hist, tooltip = 'text')
 
 ```{r stim gaze position}
 stim_gaze_hist <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,0,540)) %>%
   select(average_gaze_x, average_gaze_y) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, fill = ..count../sum(..count..)*100,
              text = after_stat(paste('x:', round(x,0), '\n',
@@ -145,7 +147,7 @@ ggplotly(stim_gaze_hist, tooltip = list('x','y','text'))
 
 ### Distribution of Pupil Sizes
 
-Eyelink reports pupil data from left and right eyes as well as the average of the two. The preprocessing pipeline performs mean and median normalization on all 3 measures relative to prefixation and fixation baselines. The following plots show the distribution of pupil sizes for samples where the participant has their gaze on the screen during the experiment (i.e. past the instructions block).
+Eyelink reports pupil data from left and right eyes as well as the average of the two. The preprocessing pipeline performs mean and median normalization on all 3 measures relative to  fixation baseline. The following plots show the distribution of pupil sizes for samples where the participant has their gaze on the screen during the experiment (i.e. past the instructions block).
 
 ```{r pupil size histograms}
 pupil_dens <- function(df,plot_title){
@@ -162,33 +164,30 @@ pupil_dens <- function(df,plot_title){
           axis.title = element_text(size = 12))
 }
 
+raw_quant <- combined_n %>%
+  filter(average_pupil_size != 0) %>%
+  summarize(quants = quantile(average_pupil_size,c(0.05,0.95),names = FALSE))
+
 raw_p <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  filter(block != 'response', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  filter(across(ends_with('pupil_size'),~between(.,raw_quant$quants[[1]],raw_quant$quants[[2]]))) %>%
   select(c(average_pupil_size,left_pupil_size,right_pupil_size)) %>%
   pupil_dens(plot_title = 'Raw Pupil Size')
 
-med_pf_p <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
-  select(c(med_average_pupil_norm_pf, med_left_pupil_norm_pf, med_right_pupil_norm_pf)) %>%
-  pupil_dens(plot_title = 'Median Prefix Normalized Pupil Size')
-
-med_fix_p <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
-  select(c(mean_average_pupil_norm_pf, mean_left_pupil_norm_pf, mean_right_pupil_norm_pf)) %>%
+mean_fix_p <- combined_n %>%
+  filter(block != 'response', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  filter(across(ends_with('pupil_size'),~between(.,raw_quant$quants[[1]],raw_quant$quants[[2]]))) %>%
+  select(c(mean_average_pupil_norm_fix, mean_left_pupil_norm_fix, mean_right_pupil_norm_fix)) %>%
   pupil_dens(plot_title = 'Mean Prefix Normalized Pupil Size')
 
-mean_pf_p <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+med_fix_p <- combined_n %>%
+  filter(block != 'response', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
+  filter(across(ends_with('pupil_size'),~between(.,raw_quant$quants[[1]],raw_quant$quants[[2]]))) %>%
   select(c(med_average_pupil_norm_fix, med_left_pupil_norm_fix, med_right_pupil_norm_fix)) %>%
   pupil_dens(plot_title = 'Median Fixation Normalized Pupil Size')
 
-mean_fix_p <- combined_n %>%
-  filter(block != 'instructions', between(average_gaze_x,0,1920), between(average_gaze_y,0,1080)) %>%
-  select(c(mean_average_pupil_norm_fix, mean_left_pupil_norm_fix, mean_right_pupil_norm_fix)) %>%
-  pupil_dens(plot_title = 'Mean Fixation Normalized Pupil Size')
-
-ggarrange(med_pf_p, med_fix_p, mean_pf_p, mean_fix_p, raw_p, 
-                       ncol = 2,
+ggarrange(med_fix_p, mean_fix_p, raw_p, 
+                       ncol = 1,
                        nrow = 3,
                        common.legend = TRUE)
 ```
@@ -203,17 +202,8 @@ Median average (combined left and right values) pupil size is plotted for each s
 stim_df %>%
   ggplot(aes(x = epoch, y = stim_med_average_pupil_size)) +
   geom_point(size = 2) + 
-  facet_wrap(~trials_this_n) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
   labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Raw Median Pupil Size Across Epochs Within Stimulus') +
-  c.theme()
-```
-
-```{r pf norm stimuli pupil sizes, fig.width = 12, fig.height= 8}
-stim_df %>%
-  ggplot(aes(x = epoch, y = stim_med_average_pupil_norm_pf)) +
-  geom_point(size = 2) + 
-  facet_wrap(~trials_this_n) + 
-  labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Prefixation-normalized Median Pupil Size Across Epochs Within Stimulus') +
   c.theme()
 ```
 
@@ -221,8 +211,8 @@ stim_df %>%
 stim_df %>%
   ggplot(aes(x = epoch, y = stim_med_average_pupil_norm_fix)) +
   geom_point(size = 2) + 
-  facet_wrap(~trials_this_n) + 
-  labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Prefixation-normalized Median Pupil Size Across Epochs Within Stimulus') +
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', y = 'Pupil Size (unitless)', title = 'Fixation-normalized Median Pupil Size Across Epochs Within Stimulus') +
   c.theme()
 ```
 
@@ -237,29 +227,29 @@ Median average pupil size are plotted as functions of gaze position during stimu
 
 ```{r raw pupil size gaze, fig.show='hold'}
 stim_gaze_pupil_size <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,0,540)) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = average_pupil_size)) +
   stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
   scale_x_continuous(limits = c(540,1380)) +
-  scale_y_reverse(limits = c(810,270)) +
+  scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno',limits = c(300,550), oob = squish) +
   labs(title = 'Median Average Pupil Size', x = '', y = '', fill = 'Average Pupil Size') +
   c.theme()
 
 stim_gaze_pupil_sd <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,0,540)) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = average_pupil_size)) +
   stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
   scale_x_continuous(limits = c(540,1380)) +
-  scale_y_reverse(limits = c(810,270)) +
+  scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno', limits = c(0,100), oob = squish) +
   labs(title = 'Median Average Pupil SD', x = '', y = '', fill = 'Average Pupil SD') +
   c.theme()
 
 stim_gaze_pupil_n <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,0,540)) %>%
   select(average_gaze_x, average_gaze_y) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, fill = ..count..,
              text = after_stat(paste('x:', round(x,0), '\n',
@@ -269,7 +259,7 @@ stim_gaze_pupil_n <- combined_n %>%
   scale_y_reverse() +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno', limits = c(0,500), oob = squish) +
-  labs(title = 'Total Samples Samples', x = '', y = '', fill = 'N') +
+  labs(title = 'Total Samples', x = '', y = '', fill = 'N') +
   c.theme()
 
 ggplotly(stim_gaze_pupil_size)
@@ -281,63 +271,28 @@ ggplotly(stim_gaze_pupil_n, tooltip = c('text'))
 
 </center>
 
-#### Prefixation Normalized 
-
-<center>
-
-```{r, fig.show='hold'}
-stim_gaze_pupil_size_pf <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
-  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_pf)) +
-  stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
-  scale_x_continuous(limits = c(540,1380)) +
-  scale_y_reverse(limits = c(810,270)) +
-  coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno') +
-  labs(title = 'Prefixation Normalized Median Pupil Size', x = '', y = '', fill = 'Average Pupil Size') +
-  c.theme()
-
-stim_gaze_pupil_sd_pf <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
-  ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_pf)) +
-  stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
-  scale_x_continuous(limits = c(540,1380)) +
-  scale_y_reverse(limits = c(810,270)) +
-  coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno') +
-  labs(title = 'Prefixation Normalized Median Pupil SD', x = '', y = '', fill = 'Average Pupil SD') +
-  c.theme()
-
-ggplotly(stim_gaze_pupil_size_pf)
-
-ggplotly(stim_gaze_pupil_sd_pf)
-
-```
-
-</center>
-
 #### Fixation Normalized 
 
 <center>
 
 ```{r, fig.show='hold'}
 stim_gaze_pupil_size_fix <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,0,540)) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_fix)) +
   stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
   scale_x_continuous(limits = c(540,1380)) +
-  scale_y_reverse(limits = c(810,270)) +
+  scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno') +
   labs(title = 'Fixation Normalized Median Pupil Size', x = '', y = '', fill = 'Average Pupil Size') +
   c.theme()
 
 stim_gaze_pupil_sd_fix <- combined_n %>%
-  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,270,810)) %>%
+  filter(block == 'stimulus', between(average_gaze_x,540,1380) & between(average_gaze_y,0,540)) %>%
   ggplot(aes(x = average_gaze_x, y = average_gaze_y, z = med_average_pupil_norm_fix)) +
   stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
   scale_x_continuous(limits = c(540,1380)) +
-  scale_y_reverse(limits = c(810,270)) +
+  scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno') +
   labs(title = 'Fixation Normalized Median Pupil SD', x = '', y = '', fill = 'Average Pupil SD') +
