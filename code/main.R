@@ -1,6 +1,5 @@
 # load libraries and source functions
 library(janitor)
-library(rstatix)
 library(rmarkdown)
 library(tidyverse)
 
