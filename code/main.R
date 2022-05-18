@@ -26,8 +26,9 @@ num_trials <- max(combined$remember_loop_this_trial_n) + 1
 ### Preprocess eyetracking
 
 ## Calculate Fixation
-
-fix_df <- calc_fixation(combined)
+wl <- 200
+fix_df <- calc_fixation(combined,
+                        fix_l = wl)
 
 ## Normalize Raw
 
