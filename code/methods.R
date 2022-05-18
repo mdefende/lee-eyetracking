@@ -53,7 +53,8 @@ v <- left_join(et,stim, by = 'timestamp') %>%
          across(average_acceleration_x:last_col(), as.numeric), # coerce eyetracking data to numeric.
          across(contains(c('in_saccade','in_blink')), as.logical)) %>%
   filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off')) %>%
-  mutate(block = fct_drop(block))
+  mutate(block = fct_drop(block)) %>%
+  rename_with(~str_replace(.,'average','comb'),contains('average'))
 
 if (save_output){
   outdir <- dirname(et_file)
@@ -68,12 +69,12 @@ calc_fixation <- function(raw, fix_l = 100){
   
   fix <- raw %>%
     filter(block == 'fixation') %>%
-    select(average_gaze_x,average_gaze_y,average_pupil_size,left_pupil_size,right_pupil_size,average_gaze_x,remember_loop_this_trial_n,block)
+    select(comb_gaze_x,comb_gaze_y,comb_pupil_size,left_pupil_size,right_pupil_size,comb_gaze_x,remember_loop_this_trial_n,block)
   
   # grab last prefix_l samples per trial, give mean, median, and sd
   fix_s <- fix %>%
     mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n)) %>%
-    filter(between(average_gaze_x,0,1920),between(average_gaze_y,0,1080)) %>%
+    filter(between(comb_gaze_x,0,1920),between(comb_gaze_y,0,1080)) %>%
     group_by(remember_loop_this_trial_n) %>%
     slice_tail(n = fix_l) %>%
     summarize(across(contains('pupil_size'),
@@ -83,7 +84,7 @@ calc_fixation <- function(raw, fix_l = 100){
                                  max = ~max(., na.rm = TRUE),
                                  sd = ~sd(., na.rm = TRUE)),
                      .names = 'fix_{.fn}_{.col}'),
-              fix_n = sum(!is.na(average_pupil_size)))
+              fix_n = sum(!is.na(comb_pupil_size)))
   
   return(fix_s)
 }
@@ -98,16 +99,16 @@ normalize_raw <- function(raw, fix, trials, outfile = NULL){
   
   raw <- raw %>%
       left_join(fix,by = "remember_loop_this_trial_n") %>%
-      mutate(med_average_pupil_norm_fix  = average_pupil_size/fix_median_average_pupil_size,
+      mutate(med_comb_pupil_norm_fix  = comb_pupil_size/fix_median_comb_pupil_size,
              med_left_pupil_norm_fix     = left_pupil_size/fix_median_left_pupil_size,
              med_right_pupil_norm_fix    = right_pupil_size/fix_median_right_pupil_size,
-             mean_average_pupil_norm_fix = average_pupil_size/fix_mean_average_pupil_size,
+             mean_comb_pupil_norm_fix = comb_pupil_size/fix_mean_comb_pupil_size,
              mean_left_pupil_norm_fix    = left_pupil_size/fix_mean_left_pupil_size,
              mean_right_pupil_norm_fix   = right_pupil_size/fix_mean_right_pupil_size) %>%
       select(-starts_with('fix'))
  
   raw <- raw %>%
-    relocate(contains('average_pupil_norm'), .after = 'average_pupil_size') %>%
+    relocate(contains('comb_pupil_norm'), .after = 'comb_pupil_size') %>%
     relocate(contains('left_pupil_norm'), .after = 'left_pupil_size') %>%
     relocate(contains('right_pupil_norm'), .after = 'right_pupil_size')
   
@@ -157,7 +158,7 @@ calc_stimulus <- function (raw, stim_w = 200){
   
   
   stim_s <- stim %>%
-    filter(between(average_gaze_x, 540, 1380), between(average_gaze_y, 0,540)) %>%
+    filter(between(comb_gaze_x, 540, 1380), between(comb_gaze_y, 0,540)) %>%
     group_by(remember_loop_this_trial_n,epoch) %>% 
     summarize(across(c(stimuli:block), unique),
               across(.cols = c(contains(c('gaze_x','gaze_y')),ends_with('pupil_size')),
