@@ -9,6 +9,7 @@ options(width = 1200)
 library(kableExtra)
 library(ggpubr)
 library(scales)
+library(hexbin)
 library(plotly)
 library(tidyverse)
 
@@ -96,31 +97,38 @@ All gaze position data is taken after the instructions were completed. Presented
 
 - % of time participant was gazing on screen: `r perc_on_screen$avg_within`%.
 
-```{r screen gaze preproc}
-# This will precompute the counts within each bin so samples from bins with fewer than 0.1% of the total samples with a recorded gaze position can be removed during plotting.
-full_screen_gaze_preproc <- combined_n %>%
-  filter(block != 'response', between(comb_gaze_x,0,1920) & between(comb_gaze_y,0,1080)) %>%
-  mutate(xbin = as.character(cut(comb_gaze_x, breaks = seq(0,1920,40),labels = FALSE)),
-         ybin = as.character(cut(comb_gaze_y, breaks = seq(0,1080,40),labels = FALSE)),
-         unbin = paste0(xbin,'-',ybin)) %>%
-  select(comb_gaze_x,comb_gaze_y,unbin)
+```{r define hexbin count func}
+# This function will precompute the counts within each bin so bins with normalized values below a given cutoff will be removed from the plot altogether.
+hexbin_count <- function(df, 
+                         gaze_x = 'comb_gaze_x', 
+                         gaze_y = 'comb_gaze_y',
+                         nbins = 30,
+                         cutoff = 0.001){
+  
+  hbin <- hexbin(df[[{{ gaze_x }}]],df[[{{ gaze_y }}]], xbins = nbins, IDs = TRUE)
 
-full_screen_keep <- full_screen_gaze_preproc %>%
-  count(unbin) %>%
-  mutate(ncount = n/sum(n)) %>%
-  filter(ncount >= 0.001)
+  data.frame(hcell2xy(hbin),
+             cell = hbin@cell,
+             count = hbin@count) %>%
+  mutate(ncount = count/sum(count)) %>%
+  filter(ncount >= cutoff) %>%
+  tibble()
+}
 ```
 
 <center>
 
 ```{r screen gaze position}
-screen_gaze_hist <- full_screen_gaze_preproc %>%
-  filter(unbin %in% full_screen_keep$unbin) %>%
-  ggplot(aes(x = comb_gaze_x, comb_gaze_y, fill = ..count../nrow(full_screen_gaze_preproc)*100,
-             text = after_stat(paste('x:', round(x,0), '\n',
-                                     'y:', round(-y,0), '\n',
-                                     'percent:', round(count/nrow(full_screen_gaze_preproc)*100,2),'%')))) +
-  geom_hex(binwidth = 40) +
+full_screen_hexbin <- combined_n %>%
+  filter(block != 'response', between(comb_gaze_x,0,1920) & between(comb_gaze_y,0,1080)) %>%
+  hexbin_count()
+
+screen_gaze_hist <- full_screen_hexbin %>%
+  ggplot(aes(x = x, y = y, fill = ncount*100,
+             text = paste('x:', round(x,0), '\n',
+                          'y:', round(y,0), '\n',
+                          'percent:', round(ncount*100,2),'%'))) +
+  geom_hex(stat = 'identity') +
   scale_x_continuous(limits = c(0,1920)) +
   scale_y_reverse(limits = c(1080,0)) +
   scale_fill_viridis_c(option = 'inferno', limits = c(0.1,5), oob = oob_squish) +
@@ -128,8 +136,7 @@ screen_gaze_hist <- full_screen_gaze_preproc %>%
   labs(title = 'Gaze Plot Over the Screen', x = '', y = '', fill = '% of samples') +
   c.theme()
 
-#ggplotly(screen_gaze_hist, tooltip = 'text')
-screen_gaze_hist
+ggplotly(screen_gaze_hist, tooltip = 'text')
 ```
 
 </center>
@@ -139,17 +146,19 @@ screen_gaze_hist
 <center>
 
 ```{r stim gaze position}
-stim_gaze_hist <- combined_n %>%
+stim_hexbin <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  select(comb_gaze_x, comb_gaze_y) %>%
-  ggplot(aes(x = comb_gaze_x, y = comb_gaze_y, fill = ..count../sum(..count..)*100,
-             text = after_stat(paste('x:', round(x,0), '\n',
-                                     'y:', round(-y,0), '\n',
-                                     'percent:', round(count/sum(count)*100,2),'%')))) +
-  geom_hex() +
+  hexbin_count(nbins = 40)
+
+stim_gaze_hist <- stim_hexbin %>%
+  ggplot(aes(x = x, y = y, fill = ncount*100,
+             text = paste('x:', round(x,0), '\n',
+                          'y:', round(y,0), '\n',
+                          'percent:', round(ncount*100,2),'%'))) +
+  geom_hex(stat = 'identity') +
   scale_y_reverse() +
   coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno', limits = c(0.1,NA), oob = oob_censor, na.value = 'white') +
+  scale_fill_viridis_c(option = 'inferno', limits = c(0.1,5), oob = oob_squish) +
   labs(title = 'Gaze Within Stimulus Zone During Stimulus', x = '', y = '', fill = '% of samples') +
   c.theme()
 
@@ -177,13 +186,18 @@ fix_df %>%
   geom_errorbar(aes(ymin = fix_median_comb_pupil_size - fix_sd_comb_pupil_size,
                     ymax = fix_median_comb_pupil_size + fix_sd_comb_pupil_size),
                 width = 0.7) +
-  labs(x = 'Trial Number', y = 'Raw Pupil Size', title = 'Mean, Median, and SD of Pupil Size During Fixation Window') +
+  geom_text(aes(y = fix_median_comb_pupil_size + fix_sd_comb_pupil_size + 100,
+                label = as.character(missing_samples)),
+            size = 3) +
+  labs(x = 'Trial Number', 
+       y = 'Raw Pupil Size', 
+       title = 'Mean, Median, and SD of Pupil Size During Fixation Window') +
   facet_wrap(~facet_row, scales = "free_x", nrow = 3) +
   c.theme() +
   theme(strip.background = element_blank(),
         strip.text.x = element_blank(),
         plot.title = element_text(size = 18),
-        axis.text.x = element_text(size = 6))
+        axis.text.x = element_text(size = 7))
 ```
 
 
@@ -276,10 +290,9 @@ Median combined pupil sizes for each bin are plotted as a function of gaze posit
 <center>
 
 ```{r precompute pupil size bin values}
-combined_n %>%
+stim_hexbin <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  mutate(xbin = cut(comb_gaze_x,breaks = seq(0,540,20)),
-         ybin = cut(comb_gaze_y,breaks = seq(540,1380,20)))
+  hexbin_count()
 ```
 
 
@@ -306,26 +319,13 @@ stim_gaze_pupil_sd <- combined_n %>%
   labs(title = 'Median Pupil SD', x = '', y = '', fill = 'Pupil SD') +
   c.theme()
 
-stim_gaze_pupil_n <- combined_n %>%
-  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  select(comb_gaze_x, comb_gaze_y) %>%
-  ggplot(aes(x = comb_gaze_x, y = comb_gaze_y, fill = ..count..,
-             text = after_stat(paste('x:', round(x,0), '\n',
-                                     'y:', round(-y,0), '\n',
-                                     'n:', count)))) +
-  geom_hex(binwidth = 18) +
-  scale_y_reverse() +
-  coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno', limits = c(0,500), oob = squish) +
-  labs(title = 'Total Samples', x = '', y = '', fill = 'N') +
-  c.theme()
-
 ggplotly(stim_gaze_pupil_size)
 
 ggplotly(stim_gaze_pupil_sd)
 
-ggplotly(stim_gaze_pupil_n, tooltip = c('text'))
+ggplotly(stim_gaze_hist, tooltip = c('text'))
 ```
+
 
 </center>
 
