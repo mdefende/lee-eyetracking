@@ -30,12 +30,10 @@ fix_df <- calc_fixation(combined,
                         fix_l = wl)
 
 ## Normalize Raw
-
 combined_n <- normalize_raw(combined, 
                             fix = fix_df,
                             trials = num_trials)
 ## Calculate Stimulus
-
 stim_df <- calc_stimulus(combined_n)
 
 ## Generate Preprocessing Report
