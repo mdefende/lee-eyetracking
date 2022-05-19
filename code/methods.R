@@ -71,11 +71,12 @@ calc_fixation <- function(raw, fix_l = 100){
     filter(block == 'fixation') %>%
     select(comb_gaze_x,comb_gaze_y,comb_pupil_size,left_pupil_size,right_pupil_size,comb_gaze_x,remember_loop_this_trial_n,block)
   
-  # grab last prefix_l samples per trial, give mean, median, and sd
+  # grab last fix_l samples per trial, give mean, median, and sd
   fix_s <- fix %>%
-    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n)) %>%
-    filter(between(comb_gaze_x,0,1920),between(comb_gaze_y,0,1080)) %>%
     group_by(remember_loop_this_trial_n) %>%
+    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n),
+           sample = row_number()) %>%
+    filter(between(comb_gaze_x,0,1920),between(comb_gaze_y,0,1080)) %>%
     slice_tail(n = fix_l) %>%
     summarize(across(contains('pupil_size'),
                      .fns = list(mean = ~mean(., na.rm = TRUE), 
@@ -84,7 +85,7 @@ calc_fixation <- function(raw, fix_l = 100){
                                  max = ~max(., na.rm = TRUE),
                                  sd = ~sd(., na.rm = TRUE)),
                      .names = 'fix_{.fn}_{.col}'),
-              fix_n = sum(!is.na(comb_pupil_size)))
+              missing_samples = max(sample) - (min(sample)-1) - fix_l)
   
   return(fix_s)
 }
