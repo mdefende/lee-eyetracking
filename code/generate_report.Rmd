@@ -137,6 +137,8 @@ screen_gaze_hist <- full_screen_hexbin %>%
   c.theme()
 
 ggplotly(screen_gaze_hist, tooltip = 'text')
+
+rm(screen_gaze_hist)
 ```
 
 </center>
