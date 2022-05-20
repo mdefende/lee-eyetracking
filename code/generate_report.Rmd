@@ -102,10 +102,12 @@ All gaze position data is taken after the instructions were completed. Presented
 hexbin_count <- function(df, 
                          gaze_x = 'comb_gaze_x', 
                          gaze_y = 'comb_gaze_y',
+                         xlim,
+                         ylim,
                          nbins = 30,
                          cutoff = 0.001){
   
-  hbin <- hexbin(df[[{{ gaze_x }}]],df[[{{ gaze_y }}]], xbins = nbins, IDs = TRUE)
+  hbin <- hexbin(df[[{{ gaze_x }}]],df[[{{ gaze_y }}]], xbnds = xlim, ybnds = ylim, xbins = nbins, IDs = TRUE)
 
   data.frame(hcell2xy(hbin),
              cell = hbin@cell,
@@ -121,7 +123,7 @@ hexbin_count <- function(df,
 ```{r screen gaze position}
 full_screen_hexbin <- combined_n %>%
   filter(block != 'response', between(comb_gaze_x,0,1920) & between(comb_gaze_y,0,1080)) %>%
-  hexbin_count()
+  hexbin_count(xlim = c(0,1920), ylim = c(0,1080))
 
 screen_gaze_hist <- full_screen_hexbin %>%
   ggplot(aes(x = x, y = y, fill = ncount*100,
@@ -150,7 +152,7 @@ rm(screen_gaze_hist)
 ```{r stim gaze position}
 stim_hexbin <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  hexbin_count(nbins = 40)
+  hexbin_count(nbins = 40, xlim = c(540,1380), ylim = c(0,540))
 
 stim_gaze_hist <- stim_hexbin %>%
   ggplot(aes(x = x, y = y, fill = ncount*100,
@@ -158,7 +160,8 @@ stim_gaze_hist <- stim_hexbin %>%
                           'y:', round(y,0), '\n',
                           'percent:', round(ncount*100,2),'%'))) +
   geom_hex(stat = 'identity') +
-  scale_y_reverse() +
+  xlim(540,1380) +
+  scale_y_reverse(limits=c(540,0)) +
   coord_fixed() + 
   scale_fill_viridis_c(option = 'inferno', limits = c(0.1,5), oob = oob_squish) +
   labs(title = 'Gaze Within Stimulus Zone During Stimulus', x = '', y = '', fill = '% of samples') +
@@ -205,20 +208,59 @@ fix_df %>%
 
 ### Distribution of Pupil Sizes
 
-Eyelink reports pupil data from left and right eyes as well as the average of the two. The preprocessing pipeline performs mean and median normalization on all 3 measures relative to  fixation baseline. The following plots show the distribution of pupil sizes for samples where the participant has their gaze on the screen during the experiment (i.e. past the instructions block).
+Eyelink reports pupil data from left and right eyes as well as the average of the two. The preprocessing pipeline performs mean and median normalization on all 3 measures relative to  fixation baseline. The following plots show the distribution of pupil sizes for samples where the participant has their gaze on the screen during the stimulus blocks. Values above and below the wiskers represent how many outliers exist on each side of the given boxplot. Outliers are defined as being beyond 1.5 times the interquartile range from the upper or lower quartile.
+
+<center>
 
 ```{r pupil size histograms}
-pupil_dens <- function(df,plot_title){
-  df %>%
+pupil_dens <- function(df,plot_title,remove_outliers = TRUE){
+  
+  df <- df %>%
     pivot_longer(everything(),
                  names_to = 'type',
                  values_to = 'size') %>%
-    mutate(type = str_extract(type,c('comb','left','right')),
-           type = case_when(type == 'comb' ~ 'Combined',
-                            type == 'left' ~ 'Left',
-                            type == 'right' ~ 'Right')) %>%
-    ggplot(aes(x = type, y = size, fill = type)) +
-    geom_boxplot(width = 0.2) +
+    mutate(type = case_when(str_detect(type,'comb') ~ 'Combined',
+                            str_detect(type,'left') ~ 'Left',
+                            str_detect(type,'right') ~ 'Right'))
+  
+  if (remove_outliers){
+    df.s <- df %>%
+      group_by(type) %>%
+      summarize(bp = boxplot.stats(size)$stats) %>%
+      mutate(q = c('min','lower','med','upper','max')) %>%
+      pivot_wider(names_from = q, values_from = bp)
+    
+    df.s <- df %>%
+      left_join(df.s, by = 'type') %>%
+      mutate(is.lower = size < min,
+             is.higher = size > max) %>%
+      group_by(type) %>%
+      summarize(pos = sum(is.higher),
+                neg = sum(is.lower)) %>%
+      left_join(df.s, by = 'type')
+      
+      
+    p <- df.s %>%
+      ggplot(aes(x = type)) +
+      geom_boxplot(mapping = aes(ymin = min,
+                                 lower = lower,
+                                 middle = med,
+                                 upper = upper,
+                                 ymax = max,
+                                 fill = type),
+                   stat = 'identity',
+                   width = 0.2) +
+      geom_text(aes(y = max, label = as.character(pos)),
+                vjust = -0.3) +
+      geom_text(aes(y = min, label = as.character(neg)),
+                vjust = 1)
+  } else {
+    p <- df %>%
+      ggplot(aes(x = type, y = size, fill = type)) +
+      geom_boxplot(width = 0.2)
+  }
+  
+  p +
     labs(x = '', y = 'Pupil Size', title = plot_title, fill = 'Eye') +
     c.theme() +
     theme(plot.title = element_text(size = 20),
@@ -240,19 +282,12 @@ med_fix_p <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,0,1920), between(comb_gaze_y,0,1080)) %>%
   select(med_comb_pupil_norm_fix, med_left_pupil_norm_fix, med_right_pupil_norm_fix) %>%
   pupil_dens(plot_title = 'Median Fixation Normalized Pupil Size')
-```
 
-<center>
-```{r ggplotly raw pupil box}
-ggplotly(raw_p)
-```
+raw_p
 
-```{r ggplotly mean norm pupil box}
-ggplotly(mean_fix_p)
-```
+mean_fix_p
 
-```{r ggplotly med norm pupil box}
-ggplotly(med_fix_p)
+med_fix_p
 ```
 </center>
 
@@ -294,7 +329,7 @@ Median combined pupil sizes for each bin are plotted as a function of gaze posit
 ```{r precompute pupil size bin values}
 stim_hexbin <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  hexbin_count()
+  hexbin_count(xlim = c(540,1380), ylim = c(0,540))
 ```
 
 
