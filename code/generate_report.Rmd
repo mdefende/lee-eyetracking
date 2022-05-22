@@ -95,41 +95,44 @@ perc_in_stim <- combined_n %>%
 
 All gaze position data is taken after the instructions were completed. Presented data is average gaze position as given by the eyetracker. Samples where no eyetracking data is recorded are removed from the overall count.
 
+**Note**: Hexes containing less than 0.1% of the total number of samples were excluded from all hexbin plots.
+
 - % of time participant was gazing on screen: `r perc_on_screen$avg_within`%.
 
 ```{r define hexbin count func}
 # This function will precompute the counts within each bin so bins with normalized values below a given cutoff will be removed from the plot altogether.
 hexbin_count <- function(df, 
-                         gaze_x = 'comb_gaze_x', 
-                         gaze_y = 'comb_gaze_y',
-                         xlim,
-                         ylim,
-                         nbins = 30,
-                         cutoff = 0.001){
+                          gaze_x = 'comb_gaze_x', 
+                          gaze_y = 'comb_gaze_y',
+                          xlim,
+                          ylim,
+                          nbins = 30,
+                          cutoff = 0.001){
   
   hbin <- hexbin(df[[{{ gaze_x }}]],df[[{{ gaze_y }}]], xbnds = xlim, ybnds = ylim, xbins = nbins, IDs = TRUE)
-
-  data.frame(hcell2xy(hbin),
-             cell = hbin@cell,
-             count = hbin@count) %>%
-  mutate(ncount = count/sum(count)) %>%
-  filter(ncount >= cutoff) %>%
-  tibble()
+  
+  agg <- data.frame(hcell2xy(hbin),
+                    cID = hbin@cell,
+                    count = hbin@count) %>%
+    mutate(ncount = count/sum(count)) %>%
+    filter(ncount >= cutoff) %>%
+    rename(hex_x = x,
+           hex_y = y,
+           hex_ncount = ncount) %>%
+    tibble()
 }
 ```
 
 <center>
 
 ```{r screen gaze position}
-full_screen_hexbin <- combined_n %>%
+screen_gaze_hist <- combined_n %>%
   filter(block != 'response', between(comb_gaze_x,0,1920) & between(comb_gaze_y,0,1080)) %>%
-  hexbin_count(xlim = c(0,1920), ylim = c(0,1080))
-
-screen_gaze_hist <- full_screen_hexbin %>%
-  ggplot(aes(x = x, y = y, fill = ncount*100,
-             text = paste('x:', round(x,0), '\n',
-                          'y:', round(y,0), '\n',
-                          'percent:', round(ncount*100,2),'%'))) +
+  hexbin_count(xlim = c(0,1920), ylim = c(0,1080)) %>%
+  ggplot(aes(x = hex_x, hex_y, fill = hex_ncount*100,
+             text = paste('x:', round(hex_x,0), '\n',
+                          'y:', round(hex_y,0), '\n',
+                          'percent:', round(hex_ncount*100,2),'%'))) +
   geom_hex(stat = 'identity') +
   scale_x_continuous(limits = c(0,1920)) +
   scale_y_reverse(limits = c(1080,0)) +
@@ -155,10 +158,10 @@ stim_hexbin <- combined_n %>%
   hexbin_count(nbins = 40, xlim = c(540,1380), ylim = c(0,540))
 
 stim_gaze_hist <- stim_hexbin %>%
-  ggplot(aes(x = x, y = y, fill = ncount*100,
-             text = paste('x:', round(x,0), '\n',
-                          'y:', round(y,0), '\n',
-                          'percent:', round(ncount*100,2),'%'))) +
+  ggplot(aes(x = hex_x, y = hex_y, fill = hex_ncount*100,
+             text = paste('x:', round(hex_x,0), '\n',
+                          'y:', round(hex_y,0), '\n',
+                          'percent:', round(hex_ncount*100,2),'%'))) +
   geom_hex(stat = 'identity') +
   xlim(540,1380) +
   scale_y_reverse(limits=c(540,0)) +
@@ -324,31 +327,60 @@ Median combined pupil sizes for each bin are plotted as a function of gaze posit
 
 #### Raw Pupil Size
 
-<center>
-
-```{r precompute pupil size bin values}
-stim_hexbin <- combined_n %>%
-  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  hexbin_count(xlim = c(540,1380), ylim = c(0,540))
+```{r define hebin_filter function}
+# As opposed to hexbin_count, this function removes data from hexes with normalized counts < cutoff but returns the filtered data with the hex ID and hex X and Y posisitions added as columns for aggregation of other metrics
+hexbin_filter <- function(df, 
+                          gaze_x = 'comb_gaze_x', 
+                          gaze_y = 'comb_gaze_y',
+                          xlim,
+                          ylim,
+                          nbins = 30,
+                          cutoff = 0.001){
+  
+  hbin <- hexbin(df[[{{ gaze_x }}]],df[[{{ gaze_y }}]], xbnds = xlim, ybnds = ylim, xbins = nbins, IDs = TRUE)
+  
+  agg <- data.frame(hcell2xy(hbin),
+                    cID = hbin@cell,
+                    count = hbin@count) %>%
+    mutate(ncount = count/sum(count)) %>%
+    filter(ncount >= cutoff) %>%
+    rename(hex_x = x,
+           hex_y = y,
+           hex_ncount = ncount) %>%
+    tibble()
+  
+  df <- df %>%
+    mutate(cID = hbin@cID) %>%
+    filter(cID %in% agg$cID) %>%
+    left_join(agg, by = 'cID')
+}
 ```
 
+<center>
 
 ```{r raw pupil size gaze, fig.show='hold'}
-stim_gaze_pupil_size <- combined_n %>%
+stim_gaze_raw <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  ggplot(aes(x = comb_gaze_x, y = comb_gaze_y, z = comb_pupil_size)) +
-  stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE), binwidth = 18) +
+  hexbin_filter(xlim = c(540,1380), ylim = c(0,540), nbins = 40) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(comb_pupil_size),
+            pupil_sd = sd(comb_pupil_size))
+
+stim_gaze_pupil_size <-  stim_gaze_raw %>%
+  ggplot(aes(x = hex_x, y = hex_y, fill = pupil_med)) +
+  geom_hex(stat = 'identity') +
   scale_x_continuous(limits = c(540,1380)) +
   scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
-  scale_fill_viridis_c(option = 'inferno',limits = c(300,550), oob = squish) +
+  scale_fill_viridis_c(option = 'inferno', limits = c(300,550), oob = squish) +
   labs(title = 'Median Pupil Size During Stimulus', x = '', y = '', fill = 'Pupil Size') +
   c.theme()
 
-stim_gaze_pupil_sd <- combined_n %>%
-  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  ggplot(aes(x = comb_gaze_x, y = comb_gaze_y, z = comb_pupil_size)) +
-  stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE), binwidth = 18) +
+stim_gaze_pupil_sd <- stim_gaze_raw %>%
+  ggplot(aes(x = hex_x, y = hex_y, fill = pupil_sd)) +
+  geom_hex(stat = 'identity') +
   scale_x_continuous(limits = c(540,1380)) +
   scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
@@ -371,10 +403,18 @@ ggplotly(stim_gaze_hist, tooltip = c('text'))
 <center>
 
 ```{r, fig.show='hold'}
-stim_gaze_pupil_size_fix <- combined_n %>%
+stim_gaze_norm <- combined_n %>%
   filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  ggplot(aes(x = comb_gaze_x, y = comb_gaze_y, z = med_comb_pupil_norm_fix)) +
-  stat_summary_hex(fun = 'median', fun.args = list(na.rm = TRUE)) +
+  hexbin_filter(xlim = c(540,1380), ylim = c(0,540), nbins = 40) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(med_comb_pupil_norm_fix),
+            pupil_sd = sd(med_comb_pupil_norm_fix))
+
+stim_gaze_pupil_size_fix <- stim_gaze_norm %>%
+  ggplot(aes(x = hex_x, y = hex_y, fill = pupil_med)) +
+  geom_hex(stat = 'identity') +
   scale_x_continuous(limits = c(540,1380)) +
   scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
@@ -382,10 +422,9 @@ stim_gaze_pupil_size_fix <- combined_n %>%
   labs(title = 'Fixation Normalized Median Pupil Size', x = '', y = '', fill = 'Pupil Size') +
   c.theme()
 
-stim_gaze_pupil_sd_fix <- combined_n %>%
-  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
-  ggplot(aes(x = comb_gaze_x, y = comb_gaze_y, z = med_comb_pupil_norm_fix)) +
-  stat_summary_hex(fun = 'sd', fun.args = list(na.rm = TRUE)) +
+stim_gaze_pupil_sd_fix <- stim_gaze_norm %>%
+  ggplot(aes(x = hex_x, y = hex_y, fill = pupil_sd)) +
+  geom_hex(stat = 'identity') +
   scale_x_continuous(limits = c(540,1380)) +
   scale_y_reverse(limits = c(540,0)) +
   coord_fixed() + 
