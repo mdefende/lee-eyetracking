@@ -37,7 +37,4 @@ combined_n <- normalize_raw(combined,
 stim_df <- calc_stimulus(combined_n)
 
 ## Generate Preprocessing Report
-render('code/generate_report.Rmd', 
-       output_format = html_document(title = participant), 
-       output_dir = report_dir,
-       output_file = paste0(participant,'.html'))
+render_report(combined_n, stim_df, participant, wl)

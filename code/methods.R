@@ -186,3 +186,13 @@ calc_stimulus <- function (raw, stim_w = 200){
   
   return(stim_s)
 }
+
+render_report <- function(combined_n, stim_df, participant, fix_l) {
+  rmarkdown::render('code/generate_report.Rmd', 
+                    params = list(combined_n = combined_n,
+                                  stim_df = stim_df,
+                                  fix_l = fix_l),
+                    output_format = rmarkdown::html_document(title = participant), 
+                    output_dir = report_dir,
+                    output_file = paste0(participant,'.html'))
+}
