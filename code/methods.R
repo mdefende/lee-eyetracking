@@ -69,13 +69,17 @@ calc_fixation <- function(raw, fix_l = 100){
   
   fix <- raw %>%
     filter(block == 'fixation') %>%
-    select(comb_gaze_x,comb_gaze_y,comb_pupil_size,left_pupil_size,right_pupil_size,comb_gaze_x,remember_loop_this_trial_n,block)
+    select(comb_gaze_x,comb_gaze_y,comb_pupil_size,left_pupil_size,right_pupil_size,comb_gaze_x,remember_loop_this_trial_n,block) %>%
+    group_by(remember_loop_this_trial_n) %>%
+    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n),
+           sample = row_number())
+  
+  # get the max sample number before filtering for calculating the number of missing samples
+  ms <- fix %>%
+    summarize(max_sample = max(sample))
   
   # grab last fix_l samples per trial, give mean, median, and sd
   fix_s <- fix %>%
-    group_by(remember_loop_this_trial_n) %>%
-    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n),
-           sample = row_number()) %>%
     filter(between(comb_gaze_x,0,1920),between(comb_gaze_y,0,1080)) %>%
     slice_tail(n = fix_l) %>%
     summarize(across(contains('pupil_size'),
@@ -85,7 +89,12 @@ calc_fixation <- function(raw, fix_l = 100){
                                  max = ~max(., na.rm = TRUE),
                                  sd = ~sd(., na.rm = TRUE)),
                      .names = 'fix_{.fn}_{.col}'),
-              missing_samples = max(sample) - (min(sample)-1) - fix_l)
+              min_sample = min(sample))
+  
+  fix_s <- fix_s %>%
+    left_join(ms, by = 'remember_loop_this_trial_n') %>%
+    mutate(missing_samples = max_sample - (min_sample-1) - fix_l) %>%
+    select(-max_sample, -min_sample)
   
   return(fix_s)
 }

@@ -1,0 +1,93 @@
+---
+title: "Single-subject stats from"
+format: html
+---
+
+```{r load test data}
+#| include: false
+load('../data/quarto_test_data.RData')
+```
+
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center')
+options(width = 1200)
+library(kableExtra)
+library(ggpubr)
+library(scales)
+library(hexbin)
+library(plotly)
+library(tidyverse)
+
+c.theme <- function(){
+  theme_minimal() +
+    theme(text = element_text(family = 'serif'),
+          plot.title = element_text(hjust = 0.5, size = 20),
+          axis.title = element_text(size = 14),
+          axis.text = element_text(size = 12),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14))
+}
+```
+
+## General Tracking Information
+
+```{r}
+#| include: false
+perc_tracked_block <- combined_n %>%
+  filter(block != 'response') %>%
+  mutate(block = fct_drop(block)) %>%
+  group_by(remember_loop_this_trial_n, block) %>%
+  summarize(n = n(),
+            tracked = sum(!is.na(comb_gaze_x) & !is.na(comb_gaze_y)),
+            perc = round(tracked/n()*100,2)) %>%
+  ungroup() %>%
+  complete(remember_loop_this_trial_n,block)
+
+perc_tracked_overall <- combined_n %>%
+  filter(block != 'response') %>%
+  summarize(n = n(),
+            tracked = sum(!is.na(comb_gaze_x) & !is.na(comb_gaze_y)),
+            perc = round(tracked/n()*100,2),
+            )
+
+missing_blocks <- perc_tracked_block %>%
+  filter(perc == 0)
+```
+
+Overall, `r perc_tracked_overall$perc`% of samples had a recorded gaze position.
+
+The total number of blocks in this design was `r nlevels(perc_tracked_block$remember_loop_this_trial_n) * nlevels(perc_tracked_block$block)`. This was calculated as the number of trials multiplied by the number of blocks within each trial.
+
+Out of those blocks, `r nrow(missing_blocks)` were completely missing data. These missing blocks can be seen below:
+
+```{r print missing blocks}
+perc_tracked_block %>%
+  rename(trial = remember_loop_this_trial_n) %>%
+  select(trial,block,tracked) %>%
+  pivot_wider(names_from = block, values_from = tracked) %>%
+  filter(stimulus == 0 | fixation == 0) %>%
+  mutate(missing = case_when(is.na(stimulus) & !is.na(fixation) ~ 'stimulus',
+                           !is.na(stimulus) & is.na(fixation) ~ 'fixation',
+                           !is.na(stimulus) & !is.na(fixation) ~ 'everything')) %>%
+  select(trial,missing) %>%
+  kbl() %>%
+  kable_paper() %>%
+  scroll_box(width = "300px", height = "200px") %>%
+  kable_styling(position = 'center')
+```
+
+The percent of samples tracked within each block can be seen below:
+
+```{r print percent tracked}
+perc_tracked_block %>%
+  rename(trial = remember_loop_this_trial_n) %>%
+  pivot_wider(names_from = block, values_from = c(n,tracked,perc)) %>%
+  select(trial,contains('fixation'),contains('stimulus')) %>%
+  kbl(col.names = c('trial','n','tracked','perc','n','tracked','perc')) %>%
+  add_header_above(c(" " = 1, "Fixation" = 3, "Stimulus" = 3)) %>%
+  kable_paper() %>%
+  scroll_box(width = "600px", height = "200px") %>%
+  kable_styling(position = 'center')
+```
