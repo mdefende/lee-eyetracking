@@ -196,12 +196,18 @@ calc_stimulus <- function (raw, stim_w = 200){
   return(stim_s)
 }
 
-render_report <- function(combined_n, stim_df, participant, fix_l) {
-  rmarkdown::render('code/generate_report.Rmd', 
-                    params = list(combined_n = combined_n,
-                                  stim_df = stim_df,
-                                  fix_l = fix_l),
-                    output_format = rmarkdown::html_document(title = participant), 
-                    output_dir = report_dir,
-                    output_file = paste0(participant,'.html'))
+render_report <- function(combined_n, stim_df, participant, fix_l, report_dir) {
+  #rmarkdown::render('code/generate_report.Rmd', 
+  #                  params = list(combined_n = combined_n,
+  #                                stim_df = stim_df,
+  #                                fix_l = fix_l),
+  #                  output_format = rmarkdown::html_document(title = participant), 
+  #                  output_dir = report_dir,
+  #                  output_file = paste0(participant,'.html'))
+  
+  quarto::quarto_render('code/generate_individual_report.qmd',
+                        execute_params = list(combined_n = combined_n,
+                                              stim_df = stim_df,
+                                              fix_l = fix_l),
+                        output_file = paste0('reports/',participant,'.html'))
 }

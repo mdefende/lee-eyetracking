@@ -1,0 +1,656 @@
+---
+title: "Single-subject stats from TReD_2818"
+format: 
+  html:
+    toc: true
+    toc-depth: 2
+    smooth-scroll: true
+---
+
+```{r load test data}
+#| include: false
+load('../data/quarto_test_data.RData')
+```
+
+
+```{r setup}
+#| include: false
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center')
+options(width = 1200)
+library(kableExtra)
+library(ggpubr)
+library(scales)
+library(hexbin)
+library(plotly)
+library(tidyverse)
+
+c.theme <- function(){
+  theme_minimal() +
+    theme(text = element_text(family = 'serif'),
+          plot.title = element_text(hjust = 0.5, size = 20),
+          axis.title = element_text(size = 14),
+          axis.text = element_text(size = 12),
+          legend.text = element_text(size = 12),
+          legend.title = element_text(size = 14))
+}
+```
+
+## General Tracking Information
+
+```{r}
+#| include: false
+perc_tracked_block <- combined_n %>%
+  filter(block != 'response') %>%
+  mutate(block = fct_drop(block)) %>%
+  group_by(remember_loop_this_trial_n, block) %>%
+  summarize(n = n(),
+            tracked = sum(!is.na(comb_gaze_x) & !is.na(comb_gaze_y)),
+            perc = round(tracked/n()*100,2)) %>%
+  ungroup() %>%
+  complete(remember_loop_this_trial_n,block)
+
+perc_tracked_overall <- combined_n %>%
+  filter(block != 'response') %>%
+  summarize(n = n(),
+            tracked = sum(!is.na(comb_gaze_x) & !is.na(comb_gaze_y)),
+            perc = round(tracked/n()*100,2),
+            )
+
+missing_blocks <- perc_tracked_block %>%
+  filter(perc == 0)
+```
+
+Overall, `r perc_tracked_overall$perc`% of samples had a recorded gaze position.
+
+The total number of blocks in this design was `r nlevels(perc_tracked_block$remember_loop_this_trial_n) * nlevels(perc_tracked_block$block)`. This was calculated as the number of trials multiplied by the number of blocks within each trial.
+
+Out of those blocks, `r nrow(missing_blocks)` were completely missing data. These missing blocks can be seen below:
+
+```{r print missing blocks}
+perc_tracked_block %>%
+  rename(trial = remember_loop_this_trial_n) %>%
+  select(trial,block,tracked) %>%
+  pivot_wider(names_from = block, values_from = tracked) %>%
+  filter(stimulus == 0 | fixation == 0) %>%
+  mutate(missing = case_when(stimulus == 0 & fixation != 0 ~ 'stimulus',
+                             stimulus != 0 & fixation == 0 ~ 'fixation',
+                             stimulus == 0 & fixation == 0 ~ 'everything')) %>%
+  select(trial,missing) %>%
+  kbl() %>%
+  kable_paper() %>%
+  scroll_box(width = "300px", height = "200px") %>%
+  kable_styling(position = 'center')
+```
+
+The percent of samples tracked within each block can be seen below:
+
+```{r print percent tracked}
+perc_tracked_block %>%
+  rename(trial = remember_loop_this_trial_n) %>%
+  pivot_wider(names_from = block, values_from = c(n,tracked,perc)) %>%
+  select(trial,contains('fixation'),contains('stimulus')) %>%
+  kbl(col.names = c('trial','n','tracked','perc','n','tracked','perc')) %>%
+  add_header_above(c(" " = 1, "Fixation" = 3, "Stimulus" = 3)) %>%
+  kable_paper() %>%
+  scroll_box(width = "600px", height = "200px") %>%
+  kable_styling(position = 'center')
+```
+
+### Gaze Position
+
+```{r}
+calc_gaze_perc <- function(df,
+                           blocks = 'stimulus',
+                           xlim = c(0,1920),
+                           ylim = c(0,1080)){
+  comb_perc <- df %>%
+    filter(block %in% blocks, !is.na(comb_gaze_x),!is.na(comb_gaze_y)) %>%
+    summarize(comb_avg_within = round(sum(between(comb_gaze_x,xlim[1],xlim[2]) & between(comb_gaze_y, ylim[1], ylim[2]))/n()*100,2))
+  
+  left_perc <- df %>%
+    filter(block %in% blocks, !is.na(left_gaze_x),!is.na(left_gaze_y)) %>%
+    summarize(left_avg_within = round(sum(between(left_gaze_x,xlim[1],xlim[2]) & between(left_gaze_y, ylim[1], ylim[2]))/n()*100,2))
+  
+  right_perc <- df %>%
+    filter(block %in% blocks, !is.na(right_gaze_x),!is.na(right_gaze_y)) %>%
+    summarize(right_avg_within = round(sum(between(right_gaze_x,xlim[1],xlim[2]) & between(right_gaze_y, ylim[1], ylim[2]))/n()*100,2))
+  
+  bind_cols(comb_perc, left_perc, right_perc)
+}
+```
+
+
+```{r}
+perc_on_screen <- combined_n %>%
+  calc_gaze_perc(blocks = c('stimulus','fixation'))
+
+perc_in_stim <- combined_n %>%
+  calc_gaze_perc(blocks = 'stimulus',
+                 xlim = c(540,1380),
+                 ylim = c(0,540))
+```
+
+All gaze position data is taken after the instructions were completed. Presented data is average gaze position as given by the eyetracker. Samples where no eyetracking data is recorded are removed from the overall count.
+
+**Note**: Hexes containing less than 0.1% of the total number of samples were excluded from all hexbin plots.
+
+```{r define hexbin count func}
+# This function will precompute the counts within each bin so bins with normalized values below a given cutoff will be removed from the plot altogether.
+hexbin_count <- function(df, 
+                         gaze_x = 'comb_gaze_x', 
+                         gaze_y = 'comb_gaze_y',
+                         xlim,
+                         ylim,
+                         nbins = 30,
+                         cutoff = 0.001,
+                         filt = FALSE){
+  
+  hbin <- hexbin(df[[{{ gaze_x }}]],df[[{{ gaze_y }}]], xbnds = xlim, ybnds = ylim, xbins = nbins, IDs = TRUE)
+  
+  agg <- data.frame(hcell2xy(hbin),
+                    cID = hbin@cell,
+                    count = hbin@count) %>%
+    mutate(ncount = count/sum(count)) %>%
+    filter(ncount >= cutoff) %>%
+    rename(hex_x = x,
+           hex_y = y,
+           hex_ncount = ncount) %>%
+    tibble()
+  
+  if(filt) {
+  df <- df %>%
+    mutate(cID = hbin@cID) %>%
+    filter(cID %in% agg$cID) %>%
+    left_join(agg, by = 'cID')
+  
+  return(df)
+  } else {
+    return(agg)
+  }
+}
+
+gaze_plot <- function(df,
+                      xlim = c(0,1920),
+                      ylim = c(1080,0)){
+  df %>%
+    ggplot(aes(x = hex_x, hex_y, fill = hex_ncount*100,
+             text = paste('x:', round(hex_x,0), '\n',
+                          'y:', round(hex_y,0), '\n',
+                          'percent:', round(hex_ncount*100,2),'%'))) +
+    geom_hex(stat = 'identity') +
+    scale_x_continuous(limits = xlim) +
+    scale_y_reverse(limits = ylim) +
+    scale_fill_viridis_c(option = 'inferno', limits = c(0.1,5), oob = oob_squish) +
+    coord_fixed() +
+    labs(title = '', x = '', y = '', fill = '% of samples') +
+    c.theme()
+}
+```
+
+```{r screen gaze position}
+#| layout-ncol: 3
+#| column: screen-inset-shaded
+
+screen_gaze_hist_comb <- combined_n %>%
+  filter(block != 'response', between(comb_gaze_x,0,1920) & between(comb_gaze_y,0,1080)) %>%
+  hexbin_count(xlim = c(0,1920), ylim = c(0,1080)) %>%
+  gaze_plot() + 
+  labs(title = 'Combined Eyes Within Screen')
+
+screen_gaze_hist_left <- combined_n %>%
+  filter(block != 'response', between(left_gaze_x,0,1920) & between(left_gaze_y,0,1080)) %>%
+  hexbin_count(xlim = c(0,1920), ylim = c(0,1080), gaze_x = 'left_gaze_x', gaze_y = 'left_gaze_y') %>%
+  gaze_plot() +
+  labs(title = 'Left Eye Only Within Screen')
+
+screen_gaze_hist_right <- combined_n %>%
+  filter(block != 'response', between(right_gaze_x,0,1920) & between(right_gaze_y,0,1080)) %>%
+  hexbin_count(xlim = c(0,1920), ylim = c(0,1080), gaze_x = 'right_gaze_x', gaze_y = 'right_gaze_y') %>%
+  gaze_plot() +
+  labs(title = 'Right Eye Only Within Screen')
+
+ggplotly(screen_gaze_hist_comb, tooltip = 'text')
+ggplotly(screen_gaze_hist_left, tooltip = 'text')
+ggplotly(screen_gaze_hist_right, tooltip = 'text')
+
+rm(screen_gaze_hist_comb)
+rm(screen_gaze_hist_left)
+rm(screen_gaze_hist_right)
+```
+
+% of time participant was gazing on screen: 
+
+- Combined:   `r perc_on_screen$comb_avg_within`%.
+- Left Only:  `r perc_on_screen$left_avg_within`%.
+- Right Only: `r perc_on_screen$right_avg_within`%.
+
+```{r stim gaze position}
+#| layout-ncol: 3
+#| column: screen-inset-shaded
+
+stim_gaze_hist_comb <- combined_n %>%
+  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
+  hexbin_count(xlim = c(540,1380), ylim = c(0,540)) %>%
+  gaze_plot(xlim = c(540,1380), 
+            ylim = c(540,0)) + 
+  labs(title = 'Combined Eyes Within Stimulus')
+
+stim_gaze_hist_left <- combined_n %>%
+  filter(block == 'stimulus', between(left_gaze_x,540,1380) & between(left_gaze_y,0,540)) %>%
+  hexbin_count(xlim = c(540,1380), ylim = c(0,540), gaze_x = 'left_gaze_x', gaze_y = 'left_gaze_y') %>%
+  gaze_plot(xlim = c(540,1380), 
+            ylim = c(540,0)) +
+  labs(title = 'Left Eye Only Within Stimulus')
+
+stim_gaze_hist_right <- combined_n %>%
+  filter(block == 'stimulus', between(right_gaze_x,540,1380) & between(right_gaze_y,0,540)) %>%
+  hexbin_count(xlim = c(540,1380), ylim = c(0,540), gaze_x = 'right_gaze_x', gaze_y = 'right_gaze_y') %>%
+  gaze_plot(xlim = c(540,1380), 
+            ylim = c(540,0)) +
+  labs(title = 'Right Eye Only Within Stimulus')
+
+ggplotly(stim_gaze_hist_comb, tooltip = 'text')
+ggplotly(stim_gaze_hist_left, tooltip = 'text')
+ggplotly(stim_gaze_hist_right, tooltip = 'text')
+```
+
+% of time participant was gazing within the stimulus area during stimulus blocks: 
+
+- Combined:   `r perc_in_stim$comb_avg_within`%.
+- Left Only:  `r perc_in_stim$left_avg_within`%.
+- Right Only: `r perc_in_stim$right_avg_within`%.
+
+## Pupil Size
+
+### Size During Fixation
+
+Normalization of pupil size is done using the mean or median of the last `r wl` samples for which gaze was measured and within the screen coordinates. Pupil size can vary substantially from trial to trial, but within these samples, variance should be low. The following plots show the mean, median, min, max, and standard deviation of the pupil size within the window.
+
+```{r fix pupil size}
+#| fig-column: page
+#| out-width: "150%"
+#| fig-cap: "The mean is shown as a red triangle while the median is shown as a black dot. Standard Deviation is plotted on the median, but is the same for both mean and median values. The numbers above each bar represent the number of samples that were excluded in order to find 200 samples with recorded gaze position. Trials that are completely missing fixation data are not plotted. See the table at the top of the document for a list of trials missing fixation data."
+fix_df %>%
+  rowid_to_column() %>%
+  mutate(facet_row = cut(rowid-1, breaks = 3, labels = FALSE, right = FALSE)) %>%
+  select(-rowid) %>%
+  ggplot(aes(x = remember_loop_this_trial_n)) +
+  geom_point(aes(y = fix_median_comb_pupil_size)) + 
+  geom_point(aes(y = fix_mean_comb_pupil_size), 
+             shape = 24, 
+             fill = 'red') +
+  geom_errorbar(aes(ymin = fix_median_comb_pupil_size - fix_sd_comb_pupil_size,
+                    ymax = fix_median_comb_pupil_size + fix_sd_comb_pupil_size),
+                width = 0.7) +
+  geom_text(aes(y = fix_median_comb_pupil_size + fix_sd_comb_pupil_size + 100,
+                label = as.character(missing_samples)),
+            size = 2) +
+  labs(x = 'Trial Number', 
+       y = 'Raw Pupil Size', 
+       title = 'Mean, Median, and SD of Pupil Size During Fixation Window') +
+  facet_wrap(~facet_row, scales = "free_x", nrow = 3) +
+  c.theme() +
+  theme(strip.background = element_blank(),
+        strip.text.x = element_blank(),
+        plot.title = element_text(size = 18),
+        axis.text.x = element_text(size = 8))
+```
+
+### Distribution of Pupil Sizes
+
+Eyelink reports pupil data from left and right eyes as well as the average of the two. The preprocessing pipeline performs mean and median normalization on all 3 measures relative to fixation baseline. The following plots show the distribution of pupil sizes for samples where the participant has their gaze on the screen during the stimulus blocks. Values above and below the whiskers represent how many outliers exist on each side of the given boxplot. Outliers are defined as being beyond 1.5 times the interquartile range from the upper or lower quartile.
+
+**Note**: It is possible for fixation-normalized data to have missing values if no fixation baseline is available for a given trial. All samples where fixation-normalized values are missing are removed from those respective plots. This is not the case for the plot of raw values where all measured data is used.
+
+```{r pupil size histograms}
+#| layout-ncol: 3
+#| column: screen-inset-shaded
+plot_pupil_dens <- function(df,plot_title,remove_outliers = TRUE){
+  
+  df <- df %>%
+    pivot_longer(everything(),
+                 names_to = 'type',
+                 values_to = 'size') %>%
+    mutate(type = case_when(str_detect(type,'comb') ~ 'Combined',
+                            str_detect(type,'left') ~ 'Left',
+                            str_detect(type,'right') ~ 'Right'))
+  
+  if (remove_outliers){
+    df.s <- df %>%
+      group_by(type) %>%
+      summarize(bp = boxplot.stats(size)$stats) %>%
+      mutate(q = c('min','lower','med','upper','max')) %>%
+      pivot_wider(names_from = q, values_from = bp)
+    
+    df.s <- df %>%
+      left_join(df.s, by = 'type') %>%
+      mutate(is.lower = size < min,
+             is.higher = size > max) %>%
+      group_by(type) %>%
+      summarize(pos = sum(is.higher),
+                neg = sum(is.lower)) %>%
+      left_join(df.s, by = 'type')
+      
+      
+    p <- df.s %>%
+      ggplot(aes(x = type)) +
+      geom_boxplot(mapping = aes(ymin = min,
+                                 lower = lower,
+                                 middle = med,
+                                 upper = upper,
+                                 ymax = max,
+                                 fill = type),
+                   stat = 'identity',
+                   width = 0.2) +
+      geom_text(aes(y = max, label = as.character(pos)),
+                vjust = -0.3) +
+      geom_text(aes(y = min, label = as.character(neg)),
+                vjust = 1)
+  } else {
+    p <- df %>%
+      ggplot(aes(x = type, y = size, fill = type)) +
+      geom_boxplot(width = 0.2)
+  }
+  
+  p +
+    labs(x = '', y = 'Pupil Size', title = plot_title) +
+    c.theme() +
+    theme(plot.title = element_text(size = 20),
+          axis.title = element_text(size = 16),
+          legend.position = 'none')
+}
+
+raw_p <- combined_n %>%
+  filter(block == 'stimulus', between(comb_gaze_x,0,1920), between(comb_gaze_y,0,1080)) %>%
+  select(comb_pupil_size,left_pupil_size,right_pupil_size) %>%
+  plot_pupil_dens(plot_title = 'Raw Pupil Size')
+
+mean_fix_p <- combined_n %>%
+  filter(block == 'stimulus', 
+         between(comb_gaze_x,0,1920), 
+         between(comb_gaze_y,0,1080), 
+         if_all(starts_with('mean_'), ~!is.na(.))) %>%
+  select(mean_comb_pupil_norm_fix, mean_left_pupil_norm_fix, mean_right_pupil_norm_fix) %>%
+  plot_pupil_dens(plot_title = 'Mean Fixation-Normalized Pupil Size')
+
+med_fix_p <- combined_n %>%
+  filter(block == 'stimulus', 
+         between(comb_gaze_x,0,1920), 
+         between(comb_gaze_y,0,1080),
+         if_all(starts_with('med_'), ~!is.na(.))) %>%
+  select(med_comb_pupil_norm_fix, med_left_pupil_norm_fix, med_right_pupil_norm_fix) %>%
+  plot_pupil_dens(plot_title = 'Median Fixation-Normalized Pupil Size')
+
+raw_p
+
+mean_fix_p
+
+med_fix_p
+```
+
+
+### Pupil Sizes During Stimuli
+
+Median combined (combined left and right values) pupil size is plotted for each stimulus block as a function of epoch. Raw values are plotted followed by fixation-normalized values. Within stimulus blocks, patterns of change in pupil size are not different across the raw and two types of normalization, however the differences pupil size between blocks do differ across normalization. The extent to which they differ is dependent on the variance in pupil size during the chosen normalization block across samples.
+
+```{r stimuli pupil sizes over epoch}
+#| column: screen-inset-shaded
+#| layout-ncol: 2
+#| layout-nrow: 3
+#| fig-width: 14
+#| fig-height: 9
+
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_comb_pupil_size)) +
+  geom_point(size = 2) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', 
+       y = 'Pupil Size (unitless)', 
+       title = 'Combined Eyes Raw Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme() +
+  theme(axis.text = element_text(size = 11))
+
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_comb_pupil_norm_fix)) +
+  geom_point(size = 2) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', 
+       y = 'Pupil Size (unitless)', 
+       title = 'Combined Eyes Fixation-Normalized Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme() +
+  theme(axis.text = element_text(size = 11))
+
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_left_pupil_size)) +
+  geom_point(size = 2) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', 
+       y = 'Pupil Size (unitless)', 
+       title = 'Left Eye Raw Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme() +
+  theme(axis.text = element_text(size = 11))
+
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_left_pupil_norm_fix)) +
+  geom_point(size = 2) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', 
+       y = 'Pupil Size (unitless)', 
+       title = 'Left Fixation-Normalized Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme() +
+  theme(axis.text = element_text(size = 11))
+
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_right_pupil_size)) +
+  geom_point(size = 2) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', 
+       y = 'Pupil Size (unitless)', 
+       title = 'Right Eye Raw Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme() +
+  theme(axis.text = element_text(size = 11))
+
+stim_df %>%
+  ggplot(aes(x = epoch, y = stim_med_right_pupil_norm_fix)) +
+  geom_point(size = 2) + 
+  facet_wrap(~remember_loop_this_trial_n) + 
+  labs(x = 'Epoch', 
+       y = 'Pupil Size (unitless)', 
+       title = 'Right Eye Fixation-Normalized Median Pupil Size Across Epochs Within Stimulus') +
+  c.theme() +
+  theme(axis.text = element_text(size = 11))
+```
+
+### Pupil Size and Gaze Position
+
+The following graphs show pupil size as a function of gaze position across all stimulus blocks for each bin. Only positions within the boundary of the stimulus area are used. Pupil size is reported as the aggregate median for all samples where the gaze position fell within the bin range. Standard Deviation (SD) of the pupil size distribution is also reported for each bin. The sample histogram reporting percentage of samples within each bin is recapitulated from above for comparison. Each set of graphs plots the average of left and right pupil sizes (combined) followed by the same data for each individual eye. Each bin containing less than 0.1% of all samples during the stimulus blocks were excluded.
+
+In some cases, one eye was successfully tracked while the other was not. For these instances, the combined pupil size could not be calculated and so was not included. This also explains why the bin map is not the same for the left eye, right eye, and combined eyes graphs.
+
+#### Raw Pupil Size
+ 
+The following graphs represent raw pupil sizes reported by the eyetracker in its native units.
+
+```{r define plot_pupil_size function}
+plot_pupil_size <- function(df,
+                            fill_var = 'pupil_med',
+                            fill_title = 'Pupil Size',
+                            plot_title = 'Combined Median Pupil Size During Stimulus'){
+  
+  fill_range <- range(df[[fill_var]])
+  lims <- c(fill_range[1] + 0.2*diff(fill_range), 
+            fill_range[2] - 0.2*diff(fill_range))
+  df %>%
+    ggplot(aes(x = hex_x, y = hex_y, fill = !!sym(fill_var))) +
+    geom_hex(stat = 'identity') +
+    scale_x_continuous(limits = c(540,1380)) +
+    scale_y_reverse(limits = c(540,0)) +
+    coord_fixed() + 
+    scale_fill_viridis_c(option = 'inferno', limits = lims, oob = squish) +
+    labs(title = plot_title, x = '', y = '', fill = fill_title) +
+    c.theme()
+}
+```
+
+```{r calc raw pupil size gaze}
+stim_gaze_raw_comb <- combined_n %>%
+  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
+  hexbin_count(xlim = c(540,1380), ylim = c(0,540), filt = TRUE) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(comb_pupil_size),
+            pupil_sd = sd(comb_pupil_size))
+
+stim_gaze_raw_left <- combined_n %>%
+  filter(block == 'stimulus', between(left_gaze_x,540,1380) & between(left_gaze_y,0,540)) %>%
+  hexbin_count(gaze_x = 'left_gaze_x', gaze_y = 'left_gaze_y', 
+               xlim = c(540,1380), ylim = c(0,540), filt = TRUE) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(left_pupil_size),
+            pupil_sd = sd(left_pupil_size))
+
+stim_gaze_raw_right <- combined_n %>%
+  filter(block == 'stimulus', between(right_gaze_x,540,1380) & between(right_gaze_y,0,540)) %>%
+  hexbin_count(gaze_x = 'right_gaze_x', gaze_y = 'right_gaze_y', 
+               xlim = c(540,1380), ylim = c(0,540), filt = TRUE) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(right_pupil_size),
+            pupil_sd = sd(right_pupil_size))
+```
+
+```{r plot raw pupil summary}
+#| column: screen-inset-shaded
+#| layout-ncol: 3
+#| layout-nrow: 3
+comb_stim_pupil_size <-  stim_gaze_raw_comb %>%
+  plot_pupil_size(plot_title = 'Combined Median Pupil Size')
+
+comb_stim_pupil_sd <- stim_gaze_raw_comb %>%
+  plot_pupil_size(fill = 'pupil_sd',
+                  fill_title = 'Pupil SD',
+                  plot_title = 'Combined Median Pupil SD')
+
+left_stim_pupil_size <-  stim_gaze_raw_left %>%
+  plot_pupil_size(plot_title = 'Left Median Pupil Size')
+
+left_stim_pupil_sd <- stim_gaze_raw_left %>%
+  plot_pupil_size(fill = 'pupil_sd',
+                  fill_title = 'Pupil SD',
+                  plot_title = 'Left Median Pupil SD')
+
+right_stim_pupil_size <-  stim_gaze_raw_right %>%
+  plot_pupil_size(plot_title = 'Right Median Pupil Size')
+
+right_stim_pupil_sd <- stim_gaze_raw_right %>%
+  plot_pupil_size(fill = 'pupil_sd',
+                  fill_title = 'Pupil SD',
+                  plot_title = 'Right Median Pupil SD')
+  
+
+ggplotly(comb_stim_pupil_size)
+
+ggplotly(comb_stim_pupil_sd)
+
+ggplotly(stim_gaze_hist_comb, tooltip = c('text'))
+
+ggplotly(left_stim_pupil_size)
+
+ggplotly(left_stim_pupil_sd)
+
+ggplotly(stim_gaze_hist_left, tooltip = c('text'))
+
+ggplotly(right_stim_pupil_size)
+
+ggplotly(right_stim_pupil_sd)
+
+ggplotly(stim_gaze_hist_right, tooltip = c('text'))
+```
+
+#### Fixation Normalized
+
+The following graphs use pupil sizes that were normalized to the median pupil size during the fixation block preceding the stimulus. After each sample is normalized to the fixation median, all samples for all simulus blocks are aggregated the same way as described above.
+
+```{r calc norm pupil size gaze}
+stim_gaze_norm_comb <- combined_n %>%
+  filter(block == 'stimulus', between(comb_gaze_x,540,1380) & between(comb_gaze_y,0,540)) %>%
+  hexbin_count(xlim = c(540,1380), ylim = c(0,540), filt = TRUE) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(med_comb_pupil_norm_fix, na.rm = TRUE),
+            pupil_sd = sd(med_comb_pupil_norm_fix, na.rm = TRUE))
+
+stim_gaze_norm_left <- combined_n %>%
+  filter(block == 'stimulus', between(left_gaze_x,540,1380) & between(left_gaze_y,0,540)) %>%
+  hexbin_count(gaze_x = 'left_gaze_x', gaze_y = 'left_gaze_y', 
+               xlim = c(540,1380), ylim = c(0,540), filt = TRUE) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(med_left_pupil_norm_fix, na.rm = TRUE),
+            pupil_sd = sd(med_left_pupil_norm_fix, na.rm = TRUE))
+
+stim_gaze_norm_right <- combined_n %>%
+  filter(block == 'stimulus', between(right_gaze_x,540,1380) & between(right_gaze_y,0,540)) %>%
+  hexbin_count(gaze_x = 'right_gaze_x', gaze_y = 'right_gaze_y',
+               xlim = c(540,1380), ylim = c(0,540), filt = TRUE) %>%
+  group_by(cID) %>%
+  summarize(hex_x = unique(hex_x),
+            hex_y = unique(hex_y),
+            pupil_med = median(med_right_pupil_norm_fix, na.rm = TRUE),
+            pupil_sd = sd(med_right_pupil_norm_fix, na.rm = TRUE))
+```
+
+```{r}
+#| column: screen-inset-shaded
+#| layout-ncol: 3
+#| layout-nrow: 3
+comb_stim_norm_pupil_size <-  stim_gaze_norm_comb %>%
+  plot_pupil_size(plot_title = 'Combined Median Normalized Pupil Size')
+
+comb_stim_norm_pupil_sd <- stim_gaze_norm_comb %>%
+  plot_pupil_size(fill = 'pupil_sd',
+                  fill_title = 'Pupil SD',
+                  plot_title = 'Combined Median Normalized Pupil SD')
+
+left_stim_norm_pupil_size <-  stim_gaze_norm_left %>%
+  plot_pupil_size(plot_title = 'Left Median Normalized Pupil Size')
+
+left_stim_norm_pupil_sd <- stim_gaze_norm_left %>%
+  plot_pupil_size(fill = 'pupil_sd',
+                  fill_title = 'Pupil SD',
+                  plot_title = 'Left Median Normalized Pupil SD')
+
+right_stim_norm_pupil_size <-  stim_gaze_norm_right %>%
+  plot_pupil_size(plot_title = 'Right Median Normalized Pupil Size')
+
+right_stim_norm_pupil_sd <- stim_gaze_norm_right %>%
+  plot_pupil_size(fill = 'pupil_sd',
+                  fill_title = 'Pupil SD',
+                  plot_title = 'Right Median Normalized Pupil SD')
+  
+
+ggplotly(comb_stim_norm_pupil_size)
+
+ggplotly(comb_stim_norm_pupil_sd)
+
+ggplotly(stim_gaze_hist_comb, tooltip = c('text'))
+
+ggplotly(left_stim_norm_pupil_size)
+
+ggplotly(left_stim_norm_pupil_sd)
+
+ggplotly(stim_gaze_hist_left, tooltip = c('text'))
+
+ggplotly(right_stim_norm_pupil_size)
+
+ggplotly(right_stim_norm_pupil_sd)
+
+ggplotly(stim_gaze_hist_right, tooltip = c('text'))
+```
+
