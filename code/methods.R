@@ -52,7 +52,7 @@ v <- left_join(et,stim, by = 'timestamp') %>%
          block = factor(block),
          across(average_acceleration_x:last_col(), as.numeric), # coerce eyetracking data to numeric.
          across(contains(c('in_saccade','in_blink')), as.logical)) %>%
-  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off')) %>%
+  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off')) %>% # remove timepoints pre stim 1 and during the off blocks (sim_off, fix_off, etc.)
   mutate(block = fct_drop(block)) %>%
   rename_with(~str_replace(.,'average','comb'),contains('average'))
 
