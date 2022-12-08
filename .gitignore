@@ -4,3 +4,6 @@
 *.docx
 reports/
 renv/
+.RData
+.Rhistory
+.Rprofile
