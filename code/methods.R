@@ -52,7 +52,7 @@ v <- left_join(et,stim, by = 'timestamp') %>%
          block = factor(block),
          across(average_acceleration_x:last_col(), as.numeric), # coerce eyetracking data to numeric.
          across(contains(c('in_saccade','in_blink')), as.logical)) %>%
-  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off')) %>%
+  filter(!is.na(remember_loop_this_trial_n),!str_detect(block,'off')) %>% # remove timepoints pre stim 1 and during the off blocks (sim_off, fix_off, etc.)
   mutate(block = fct_drop(block)) %>%
   rename_with(~str_replace(.,'average','comb'),contains('average'))
 
@@ -69,13 +69,17 @@ calc_fixation <- function(raw, fix_l = 100){
   
   fix <- raw %>%
     filter(block == 'fixation') %>%
-    select(comb_gaze_x,comb_gaze_y,comb_pupil_size,left_pupil_size,right_pupil_size,comb_gaze_x,remember_loop_this_trial_n,block)
+    select(comb_gaze_x,comb_gaze_y,comb_pupil_size,left_pupil_size,right_pupil_size,comb_gaze_x,remember_loop_this_trial_n,block) %>%
+    group_by(remember_loop_this_trial_n) %>%
+    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n),
+           sample = row_number())
+  
+  # get the max sample number before filtering for calculating the number of missing samples
+  ms <- fix %>%
+    summarize(max_sample = max(sample))
   
   # grab last fix_l samples per trial, give mean, median, and sd
   fix_s <- fix %>%
-    group_by(remember_loop_this_trial_n) %>%
-    mutate(remember_loop_this_trial_n = as.factor(remember_loop_this_trial_n),
-           sample = row_number()) %>%
     filter(between(comb_gaze_x,0,1920),between(comb_gaze_y,0,1080)) %>%
     slice_tail(n = fix_l) %>%
     summarize(across(contains('pupil_size'),
@@ -85,7 +89,12 @@ calc_fixation <- function(raw, fix_l = 100){
                                  max = ~max(., na.rm = TRUE),
                                  sd = ~sd(., na.rm = TRUE)),
                      .names = 'fix_{.fn}_{.col}'),
-              missing_samples = max(sample) - (min(sample)-1) - fix_l)
+              min_sample = min(sample))
+  
+  fix_s <- fix_s %>%
+    left_join(ms, by = 'remember_loop_this_trial_n') %>%
+    mutate(missing_samples = max_sample - (min_sample-1) - fix_l) %>%
+    select(-max_sample, -min_sample)
   
   return(fix_s)
 }
@@ -187,12 +196,10 @@ calc_stimulus <- function (raw, stim_w = 200){
   return(stim_s)
 }
 
-render_report <- function(combined_n, stim_df, participant, fix_l) {
-  rmarkdown::render('code/generate_report.Rmd', 
-                    params = list(combined_n = combined_n,
-                                  stim_df = stim_df,
-                                  fix_l = fix_l),
-                    output_format = rmarkdown::html_document(title = participant), 
-                    output_dir = report_dir,
-                    output_file = paste0(participant,'.html'))
+render_report <- function(combined_n, stim_df, participant, fix_l, report_dir) {
+  quarto::quarto_render('code/generate_individual_report.qmd',
+                        execute_params = list(combined_n = combined_n,
+                                              stim_df = stim_df,
+                                              fix_l = fix_l),
+                        output_file = paste0('reports/',participant,'.html'))
 }

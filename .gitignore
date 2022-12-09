@@ -3,3 +3,8 @@
 .Rproj.user
 *.docx
 reports/
+renv/
+.RData
+.Rhistory
+.Rprofile
+*.html
