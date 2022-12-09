@@ -38,3 +38,7 @@ After entering these things, the repository should be automatically downloaded a
 `renv::restore('renv.lock')`
 
 This will download and install all of the necessary packages needed to run the repository scripts.
+
+## Usage
+
+The entire repo can be run via the code/main.R script. Eyetracking and stimulus inputs should be saved in CSV format and their paths should be specified at the beginning of the script. Generated reports will be saved as HTML in the `reports` directory by default. Each generated HTML file will come with a folder of the same name containing the figures and other parts of the report, this folder should not be deleted and should be kept with the report for proper viewing.
