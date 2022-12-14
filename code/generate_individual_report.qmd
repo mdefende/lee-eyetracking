@@ -7,12 +7,6 @@ format:
     smooth-scroll: true
 ---
 
-```{r load test data}
-#| include: false
-load('../data/quarto_test_data.RData')
-```
-
-
 ```{r setup}
 #| include: false
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.align = 'center')
@@ -22,6 +16,8 @@ library(ggpubr)
 library(scales)
 library(hexbin)
 library(plotly)
+library(janitor)
+library(rmarkdown)
 library(tidyverse)
 
 c.theme <- function(){
@@ -33,6 +29,10 @@ c.theme <- function(){
           legend.text = element_text(size = 12),
           legend.title = element_text(size = 14))
 }
+```
+
+```{r load data from pipeline}
+load(here::here('data/tmp/current_subj.RData'))
 ```
 
 ## General Tracking Information
@@ -264,7 +264,7 @@ ggplotly(stim_gaze_hist_right, tooltip = 'text')
 
 ### Size During Fixation
 
-Normalization of pupil size is done using the mean or median of the last `r wl` samples for which gaze was measured and within the screen coordinates. Pupil size can vary substantially from trial to trial, but within these samples, variance should be low. The following plots show the mean, median, min, max, and standard deviation of the pupil size within the window.
+Normalization of pupil size is done using the mean or median of the last `r window_length` samples for which gaze was measured and within the screen coordinates. Pupil size can vary substantially from trial to trial, but within these samples, variance should be low. The following plots show the mean, median, min, max, and standard deviation of the pupil size within the window.
 
 ```{r fix pupil size}
 #| fig-column: page
