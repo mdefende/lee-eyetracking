@@ -16,20 +16,19 @@ stim_file <- 'data/TReD_2818/raw/TReD_2818_stim.csv'
 
 # list the participant ID and output directory for preprocessing reports
 participant <- 'TReD_2818'
-report_dir <- 'reports'
 
-################ Pipeline #######################
+#################  Pipeline ######################
 
-combined <- match_et_with_stim(et_file,stim_file)
+# align eyetracking and stimulus timepoints and calculate the total number of trials
+combined <- match_et_with_stim(et_file, stim_file)
 num_trials <- max(combined$remember_loop_this_trial_n) + 1
-
 
 ### Preprocess eyetracking
 
 ## Calculate Fixation
-wl <- 200
+window_length <- 200 # the last window_length samples in each fixation block are used for data normalization
 fix_df <- calc_fixation(combined,
-                        fix_l = wl)
+                        fix_l = window_length)
 
 ## Normalize Raw
 combined_n <- normalize_raw(combined, 
@@ -38,5 +37,8 @@ combined_n <- normalize_raw(combined,
 ## Calculate Stimulus
 stim_df <- calc_stimulus(combined_n)
 
+## Save preprocessed data for later and for use in generating the report
+save_data(combined, combined_n, stim_df, fix_df, window_length, participant)
+
 ## Generate Preprocessing Report
-render_report(combined_n, stim_df, participant, wl, report_dir)
+render_report(participant)
