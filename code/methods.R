@@ -196,10 +196,29 @@ calc_stimulus <- function (raw, stim_w = 200){
   return(stim_s)
 }
 
-render_report <- function(combined_n, stim_df, participant, fix_l, report_dir) {
-  quarto::quarto_render('code/generate_individual_report.qmd',
-                        execute_params = list(combined_n = combined_n,
-                                              stim_df = stim_df,
-                                              fix_l = fix_l),
-                        output_file = paste0('reports/',participant,'.html'))
+save_data <- function(combined, combined_n, stim_df, fix_df, window_length, participant){
+  # save all data into a current_subj.RData file for easy loading in the report.
+  # This is temporary and will be deleted once the report is generated
+  
+  if (!file.exists(here::here('data/tmp'))){
+    dir.create(here::here('data/tmp'), recursive = TRUE)
+  }
+  
+  save('combined_n','stim_df','fix_df', 'window_length', file = here::here('data/tmp/current_subj.RData'))
+  
+  # write preprocessed data as Apache parquet files back in the participant's data directory
+  
+  if (!file.exists(here::here(file.path('data',participant,'preproc')))){
+    dir.create(here::here(file.path('data',participant,'preproc')), recursive = TRUE)
+  }
+  
+  arrow::write_parquet(combined, sink = file.path('data',participant,'preproc','raw_sample_level_data.parquet'))
+  arrow::write_parquet(combined_n, sink = file.path('data',participant,'preproc','fixation_normalized_sample_level_data.parquet'))
+  arrow::write_parquet(stim_df, sink = file.path('data',participant,'preproc','stimulus_summaries.parquet'))
+  arrow::write_parquet(fix_df, sink = file.path('data',participant,'preproc','fixation_summaries.parquet'))
+}
+
+render_report <- function(participant) {
+  quarto::quarto_render(here::here('code/generate_individual_report.qmd'),
+                        output_file = paste0(participant,'.html'))
 }
