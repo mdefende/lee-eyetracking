@@ -8,3 +8,4 @@ renv/
 .Rhistory
 .Rprofile
 *.html
+/.quarto/
